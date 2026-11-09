@@ -478,7 +478,12 @@ static void tb_receiver_apply_language_preference(struct app *a) {
 }
 
 static int tb_receiver_input_monitoring_trusted(void) {
-    return CGPreflightListenEventAccess() ? 1 : 0;
+    /* Input Monitoring exists since macOS 10.15; before that no permission
+     * is needed to listen to input events. */
+    if (__builtin_available(macOS 10.15, *)) {
+        return CGPreflightListenEventAccess() ? 1 : 0;
+    }
+    return 1;
 }
 
 static int tb_receiver_accessibility_trusted(void) {
