@@ -1,0 +1,79 @@
+name: Legacy Receiver
+
+# The Receiver for older Intel Macs (macOS 10.14 Mojave and later). The
+# regular build uses Homebrew's libraries, which require the build machine's
+# macOS (15); here SDL2 and FFmpeg are built from source for 10.14.
+
+on:
+  push:
+    branches: [ legacy-receiver ]
+  pull_request:
+    branches: [ legacy-receiver ]
+  workflow_dispatch:
+
+jobs:
+  build-legacy-receiver:
+    name: Build Legacy Receiver (macOS 10.14+, x86_64)
+    runs-on: macos-15-intel
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "10.14"
+      LEGACY_PREFIX: ${{ github.workspace }}/legacy-deps
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Install Build Tools
+        run: |
+          brew install pkgconf nasm cmake jq dylibbundler
+
+      - name: Cache Legacy Libraries
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: legacy-deps
+          key: legacy-deps-10.14-sdl2-2.30.9-ffmpeg-7.1-${{ hashFiles('TargetBridge-Receiver/scripts/build_legacy_deps.sh') }}
+
+      - name: Build SDL2 and FFmpeg for macOS 10.14
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          bash TargetBridge-Receiver/scripts/build_legacy_deps.sh "$LEGACY_PREFIX"
+
+      - name: Check Localizations
+        run: |
+          ./TargetBridge-Shared/scripts/check_localizations.sh
+
+      - name: Run Receiver Parser Tests
+        run: |
+          cd TargetBridge-Receiver/TBReceiverC
+          make test
+
+      - name: Build Legacy Receiver App
+        env:
+          # Any macOS API newer than 10.14 used without an availability check
+          # fails the build.
+          CFLAGS: -Werror=unguarded-availability-new
+          # Fail if a bundled part still needs a newer macOS.
+          TARGETBRIDGE_RECEIVER_MAX_MIN_OS: "10.14"
+        run: |
+          export PKG_CONFIG_PATH="$LEGACY_PREFIX/lib/pkgconfig"
+          export DYLD_FALLBACK_LIBRARY_PATH="$LEGACY_PREFIX/lib"
+          pkgconf --modversion sdl2 libavcodec
+          cd TargetBridge-Receiver
+          ./scripts/build_tbreceiver_c_app.sh
+
+      - name: Show Minimum macOS
+        run: |
+          /usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "build/TargetBridge Receiver.app/Contents/Info.plist"
+          otool -L "build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver"
+
+      - name: Zip Legacy Receiver App
+        run: |
+          cd build
+          zip -ry TargetBridge-Receiver-legacy-x86_64.app.zip "TargetBridge Receiver.app"
+
+      - name: Upload Legacy Receiver App
+        uses: actions/upload-artifact@v7
+        with:
+          name: TargetBridge-Receiver-legacy-x86_64
+          path: build/TargetBridge-Receiver-legacy-x86_64.app.zip
+          retention-days: 30
