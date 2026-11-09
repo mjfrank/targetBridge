@@ -67,6 +67,27 @@ static NSWindow *tb_ui_largest_window(void) {
     return largest;
 }
 
+static NSImage *tb_background_ui_drawn_display_icon(void) {
+    return [NSImage imageWithSize:NSMakeSize(18, 18)
+                          flipped:NO
+                   drawingHandler:^BOOL(NSRect rect) {
+        [NSColor.blackColor setStroke];
+        NSBezierPath *screen = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(2.5, 5.5, 13, 9)
+                                                               xRadius:1.5
+                                                               yRadius:1.5];
+        screen.lineWidth = 1.4;
+        [screen stroke];
+        NSBezierPath *stand = [NSBezierPath bezierPath];
+        stand.lineWidth = 1.4;
+        [stand moveToPoint:NSMakePoint(9, 5.5)];
+        [stand lineToPoint:NSMakePoint(9, 3)];
+        [stand moveToPoint:NSMakePoint(6, 2.5)];
+        [stand lineToPoint:NSMakePoint(12, 2.5)];
+        [stand stroke];
+        return YES;
+    }];
+}
+
 @implementation TBBackgroundUI
 
 - (instancetype)init {
@@ -76,8 +97,13 @@ static NSWindow *tb_ui_largest_window(void) {
     _policyVisible = -1;
     _requestedPresentation = -1;
     _statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
-    NSImage *icon = [NSImage imageWithSystemSymbolName:@"display"
-                              accessibilityDescription:@"TargetBridge Receiver"];
+    NSImage *icon = nil;
+    if (@available(macOS 11.0, *)) {
+        icon = [NSImage imageWithSystemSymbolName:@"display"
+                         accessibilityDescription:@"TargetBridge Receiver"];
+    }
+    /* Before macOS 11 (no SF Symbols): a small drawn monitor. */
+    if (!icon) icon = tb_background_ui_drawn_display_icon();
     if (icon) {
         icon.template = YES;
         _statusItem.button.image = icon;

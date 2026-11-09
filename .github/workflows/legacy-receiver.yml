@@ -52,6 +52,8 @@ jobs:
           # Any macOS API newer than 10.14 used without an availability check
           # fails the build.
           CFLAGS: -Werror=unguarded-availability-new
+          # Report every file's errors in one run.
+          MAKEFLAGS: -k
           # Fail if a bundled part still needs a newer macOS.
           TARGETBRIDGE_RECEIVER_MAX_MIN_OS: "10.14"
         run: |
