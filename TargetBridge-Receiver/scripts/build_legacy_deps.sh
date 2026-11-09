@@ -32,9 +32,17 @@ cmake -S "$WORK/SDL2-${SDL2_VERSION}" -B "$WORK/sdl2-build" \
     -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$MIN_OS" \
     -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-    -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF
+    -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF \
+    -DCMAKE_MACOSX_RPATH=OFF \
+    -DCMAKE_INSTALL_NAME_DIR="$PREFIX/lib"
 cmake --build "$WORK/sdl2-build" --parallel "$JOBS"
 cmake --install "$WORK/sdl2-build"
+# Absolute install names, so dylibbundler finds every library on its own
+# instead of asking for an @rpath directory (which would hang in CI).
+for lib in "$PREFIX"/lib/libSDL2*.dylib; do
+    [[ -L "$lib" ]] && continue
+    install_name_tool -id "$PREFIX/lib/$(basename "$lib")" "$lib"
+done
 
 echo "== FFmpeg $FFMPEG_VERSION for macOS $MIN_OS"
 curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar -xJ -C "$WORK"
@@ -60,6 +68,12 @@ curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar -
     make -j"$JOBS"
     make install
 )
+
+echo "== Install names (must be absolute)"
+for lib in "$PREFIX"/lib/*.dylib; do
+    [[ -L "$lib" ]] && continue
+    otool -D "$lib" | tail -n 1
+done
 
 echo "== Minimum macOS of the built libraries"
 for lib in "$PREFIX"/lib/*.dylib; do

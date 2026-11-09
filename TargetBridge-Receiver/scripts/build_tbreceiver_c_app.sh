@@ -50,11 +50,15 @@ if ! command -v dylibbundler &>/dev/null; then
   echo "Installing dylibbundler..."
   brew install dylibbundler
 fi
-dylibbundler -od -b \
+# A legacy build (build_legacy_deps.sh) names its library folder, so
+# dylibbundler never stops to ask for one.
+DYLIBBUNDLER_SEARCH=()
+[[ -n "${TARGETBRIDGE_LIBRARY_DIR:-}" ]] && DYLIBBUNDLER_SEARCH=(-s "$TARGETBRIDGE_LIBRARY_DIR")
+dylibbundler -od -b "${DYLIBBUNDLER_SEARCH[@]}" \
   -x "$APP_DIR/Contents/MacOS/$BIN_NAME" \
   -d "$APP_DIR/Contents/Frameworks/" \
   -p @executable_path/../Frameworks/ \
-  >/dev/null 2>&1
+  >/dev/null 2>&1 </dev/null
 
 SDL2_IN_APP="$(find "$APP_DIR/Contents/Frameworks" -type f -name 'libSDL2*.dylib' -print -quit)"
 if [[ -n "$SDL2_IN_APP" ]] && strings -a "$SDL2_IN_APP" | grep -q 'libSDL3'; then

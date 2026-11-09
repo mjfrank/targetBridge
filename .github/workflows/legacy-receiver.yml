@@ -48,6 +48,7 @@ jobs:
           make test
 
       - name: Build Legacy Receiver App
+        timeout-minutes: 15
         env:
           # Any macOS API newer than 10.14 used without an availability check
           # fails the build.
@@ -59,6 +60,7 @@ jobs:
         run: |
           export PKG_CONFIG_PATH="$LEGACY_PREFIX/lib/pkgconfig"
           export DYLD_FALLBACK_LIBRARY_PATH="$LEGACY_PREFIX/lib"
+          export TARGETBRIDGE_LIBRARY_DIR="$LEGACY_PREFIX/lib"
           pkgconf --modversion sdl2 libavcodec
           cd TargetBridge-Receiver
           ./scripts/build_tbreceiver_c_app.sh
