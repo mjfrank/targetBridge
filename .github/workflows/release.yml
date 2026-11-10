@@ -66,25 +66,60 @@ jobs:
           path: build/TargetBridge-${{ matrix.arch }}.app.zip
           retention-days: 1
 
+  # Three Receivers, named by processor and lowest supported macOS (see
+  # ci.yml). The macOS 10.14 Mojave one uses SDL2 and FFmpeg built from source.
   build-receiver:
-    name: Build Receiver (macOS ${{ matrix.arch }})
+    name: Build Receiver (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     env:
       TARGETBRIDGE_SIGNING_CONFIGURED: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 != '' }}
+      LEGACY_PREFIX: ${{ github.workspace }}/legacy-deps
     strategy:
       matrix:
         include:
-          - os: macos-15-intel
-            arch: x86_64
           - os: macos-15
             arch: arm64
+            label: AppleSilicon-macOS15-Sequoia-and-later
+            max_min_os: "15.0"
+            legacy: false
+          - os: macos-15-intel
+            arch: x86_64
+            label: Intel-macOS15-Sequoia-and-later
+            max_min_os: "15.0"
+            legacy: false
+          - os: macos-15-intel
+            arch: x86_64
+            label: Intel-macOS10.14-Mojave-and-later
+            max_min_os: "10.14"
+            legacy: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
 
       - name: Install Dependencies
+        if: ${{ !matrix.legacy }}
         run: |
           brew install ffmpeg sdl2 sdl3 dylibbundler
+
+      - name: Install Build Tools (macOS 10.14 Mojave libraries)
+        if: ${{ matrix.legacy }}
+        run: |
+          brew install pkgconf nasm cmake jq dylibbundler
+
+      - name: Cache Libraries (macOS 10.14 Mojave)
+        if: ${{ matrix.legacy }}
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: legacy-deps
+          key: legacy-deps-10.14-sdl2-2.30.9-ffmpeg-7.1-${{ hashFiles('TargetBridge-Receiver/scripts/build_legacy_deps.sh') }}
+
+      - name: Build SDL2 and FFmpeg for macOS 10.14 Mojave
+        if: ${{ matrix.legacy && steps.cache.outputs.cache-hit != 'true' }}
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "10.14"
+        run: |
+          bash TargetBridge-Receiver/scripts/build_legacy_deps.sh "$LEGACY_PREFIX"
 
       - name: Import release signing certificate
         if: ${{ env.TARGETBRIDGE_SIGNING_CONFIGURED == 'true' }}
@@ -94,7 +129,16 @@ jobs:
           certificate-password: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_PASSWORD }}
 
       - name: Build Receiver App
+        env:
+          TARGETBRIDGE_RECEIVER_MAX_MIN_OS: ${{ matrix.max_min_os }}
         run: |
+          if [[ "${{ matrix.legacy }}" == "true" ]]; then
+            export MACOSX_DEPLOYMENT_TARGET=10.14
+            export PKG_CONFIG_PATH="$LEGACY_PREFIX/lib/pkgconfig"
+            export DYLD_FALLBACK_LIBRARY_PATH="$LEGACY_PREFIX/lib"
+            export TARGETBRIDGE_LIBRARY_DIR="$LEGACY_PREFIX/lib"
+            export CFLAGS=-Werror=unguarded-availability-new
+          fi
           cd TargetBridge-Receiver
           TB_BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION:' ../TargetBridge-Sender/project.yml | sed -E 's/.*\"([^\"]+)\".*/\1/')"
           test -n "$TB_BUILD"
@@ -105,18 +149,18 @@ jobs:
       - name: Zip App Bundle
         run: |
           cd build
-          zip -r TargetBridge-Receiver-${{ matrix.arch }}.app.zip "TargetBridge Receiver.app"
+          zip -ry TargetBridge-Receiver-${{ matrix.label }}.app.zip "TargetBridge Receiver.app"
 
       - name: Generate build provenance attestation
         uses: actions/attest@v4
         with:
-          subject-path: build/TargetBridge-Receiver-${{ matrix.arch }}.app.zip
+          subject-path: build/TargetBridge-Receiver-${{ matrix.label }}.app.zip
 
       - name: Upload Receiver Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: TargetBridge-Receiver-${{ matrix.arch }}.app.zip
-          path: build/TargetBridge-Receiver-${{ matrix.arch }}.app.zip
+          name: TargetBridge-Receiver-${{ matrix.label }}.app.zip
+          path: build/TargetBridge-Receiver-${{ matrix.label }}.app.zip
           retention-days: 1
 
   publish-release:
@@ -139,17 +183,12 @@ jobs:
           name: TargetBridge-arm64.app.zip
           path: ./artifacts
 
-      - name: Download Receiver Artifact (x86_64)
+      - name: Download Receiver Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: TargetBridge-Receiver-x86_64.app.zip
+          pattern: TargetBridge-Receiver-*.app.zip
           path: ./artifacts
-
-      - name: Download Receiver Artifact (arm64)
-        uses: actions/download-artifact@v8
-        with:
-          name: TargetBridge-Receiver-arm64.app.zip
-          path: ./artifacts
+          merge-multiple: true
 
       - name: Create Draft Release
         env:
@@ -158,8 +197,9 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             ./artifacts/TargetBridge-x86_64.app.zip \
             ./artifacts/TargetBridge-arm64.app.zip \
-            ./artifacts/TargetBridge-Receiver-x86_64.app.zip \
-            ./artifacts/TargetBridge-Receiver-arm64.app.zip \
+            ./artifacts/TargetBridge-Receiver-AppleSilicon-macOS15-Sequoia-and-later.app.zip \
+            ./artifacts/TargetBridge-Receiver-Intel-macOS15-Sequoia-and-later.app.zip \
+            ./artifacts/TargetBridge-Receiver-Intel-macOS10.14-Mojave-and-later.app.zip \
             --title "TargetBridge ${{ github.ref_name }}" \
             --draft \
             --generate-notes

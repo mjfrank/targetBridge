@@ -2,7 +2,7 @@ name: CI Build Verification
 
 on:
   push:
-    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0, upgrades, performance, 'feature/**' ]
+    branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0, upgrades, performance, '4.0', legacy-receiver, 'feature/**' ]
   pull_request:
     branches: [ main, 3.1-maint, maint-3.5, 3.2-dev, dev-3.3.0, dev-3.4.0, dev-3.6.0 ]
 
@@ -59,23 +59,64 @@ jobs:
       - name: Check Sender Permission Probe
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb sender build/TargetBridge.app/Contents/MacOS/TargetBridge
 
+  # Three Receivers, named by processor and lowest supported macOS:
+  #   Apple silicon, macOS 15 Sequoia and later   (Homebrew libraries)
+  #   Intel,         macOS 15 Sequoia and later   (Homebrew libraries)
+  #   Intel,         macOS 10.14 Mojave and later (SDL2 and FFmpeg built
+  #                  from source by build_legacy_deps.sh)
+  # Each build fails if any bundled part needs a newer macOS than its name.
   build-receiver:
-    name: Build Receiver (${{ matrix.os }} - ${{ matrix.arch }})
+    name: Build Receiver (${{ matrix.label }})
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: macos-15-intel
-            arch: x86_64
           - os: macos-15
             arch: arm64
+            label: AppleSilicon-macOS15-Sequoia-and-later
+            max_min_os: "15.0"
+            legacy: false
+          - os: macos-15-intel
+            arch: x86_64
+            label: Intel-macOS15-Sequoia-and-later
+            max_min_os: "15.0"
+            legacy: false
+          - os: macos-15-intel
+            arch: x86_64
+            label: Intel-macOS10.14-Mojave-and-later
+            max_min_os: "10.14"
+            legacy: true
     runs-on: ${{ matrix.os }}
+    env:
+      LEGACY_PREFIX: ${{ github.workspace }}/legacy-deps
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
 
       - name: Install Dependencies
+        if: ${{ !matrix.legacy }}
         run: |
           brew install ffmpeg jq sdl2 sdl3 dylibbundler
+
+      - name: Install Build Tools (macOS 10.14 Mojave libraries)
+        if: ${{ matrix.legacy }}
+        run: |
+          brew install pkgconf nasm cmake jq dylibbundler
+
+      - name: Cache Libraries (macOS 10.14 Mojave)
+        if: ${{ matrix.legacy }}
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: legacy-deps
+          key: legacy-deps-10.14-sdl2-2.30.9-ffmpeg-7.1-${{ hashFiles('TargetBridge-Receiver/scripts/build_legacy_deps.sh') }}
+
+      - name: Build SDL2 and FFmpeg for macOS 10.14 Mojave
+        if: ${{ matrix.legacy && steps.cache.outputs.cache-hit != 'true' }}
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "10.14"
+        run: |
+          bash TargetBridge-Receiver/scripts/build_legacy_deps.sh "$LEGACY_PREFIX"
 
       - name: Check Localizations
         run: |
@@ -87,20 +128,38 @@ jobs:
           make test
 
       - name: Build Receiver App
+        timeout-minutes: 15
+        env:
+          # Fail if a bundled part needs a newer macOS than the name says.
+          TARGETBRIDGE_RECEIVER_MAX_MIN_OS: ${{ matrix.max_min_os }}
         run: |
+          if [[ "${{ matrix.legacy }}" == "true" ]]; then
+            export MACOSX_DEPLOYMENT_TARGET=10.14
+            export PKG_CONFIG_PATH="$LEGACY_PREFIX/lib/pkgconfig"
+            export DYLD_FALLBACK_LIBRARY_PATH="$LEGACY_PREFIX/lib"
+            export TARGETBRIDGE_LIBRARY_DIR="$LEGACY_PREFIX/lib"
+            # Any macOS API newer than 10.14 used without an availability
+            # check fails the build; -k reports every file's errors at once.
+            export CFLAGS=-Werror=unguarded-availability-new
+            export MAKEFLAGS=-k
+          fi
           cd TargetBridge-Receiver
           ./scripts/build_tbreceiver_c_app.sh
+
+      - name: Show Minimum macOS
+        run: |
+          /usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "build/TargetBridge Receiver.app/Contents/Info.plist"
 
       - name: Zip Receiver App
         run: |
           cd build
-          zip -ry TargetBridge-Receiver-${{ matrix.arch }}.app.zip "TargetBridge Receiver.app"
+          zip -ry TargetBridge-Receiver-${{ matrix.label }}.app.zip "TargetBridge Receiver.app"
 
       - name: Upload Receiver App
         uses: actions/upload-artifact@v7
         with:
-          name: TargetBridge-Receiver-${{ matrix.arch }}
-          path: build/TargetBridge-Receiver-${{ matrix.arch }}.app.zip
+          name: TargetBridge-Receiver-${{ matrix.label }}
+          path: build/TargetBridge-Receiver-${{ matrix.label }}.app.zip
           retention-days: 7
 
       - name: Check Receiver Permission Probe

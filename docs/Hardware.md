@@ -5,7 +5,12 @@ Macs
 ----
 
 - Sender: Apple Silicon Mac. Intel Macs will NOT work.
-- Receiver: Intel or Apple Silicon Mac with a display.
+- Receiver: Intel or Apple Silicon Mac with a display. Pre-built Receivers:
+  - Apple Silicon: macOS 15 Sequoia or later
+  - Intel: macOS 15 Sequoia or later
+  - Intel: macOS 10.14 Mojave or later, for older iMacs that can't update to
+    macOS 15 Sequoia, for example the iMac (Retina 5K, 27-inch, 2017) on macOS
+    13 Ventura. See [Download](../README.md#download).
 - Both Macs need to support Thunderbolt Bridge (e.g. iMacs >= late 2014)
 
 Typical setups:

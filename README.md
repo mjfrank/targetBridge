@@ -166,8 +166,10 @@ TargetBridge now has a conservative manifest-based addon system. Official manife
 ## Requirements
 
 - Sender: Apple Silicon Mac (M1 or later) or Intel Mac, macOS 14 Sonoma or later. Apple Silicon remains the primary tested path; Intel Sender builds are available for broader testing.
-- Pre-built Receiver: macOS 14 Sonoma or later on Intel; macOS 15 Sequoia or later on Apple Silicon.
-- The Receiver source targets macOS 11, but builds for older systems require compatible libraries. Older-system packaging remains tracked in [#167](https://github.com/swellweb/targetBridge/issues/167).
+- Receiver: one of three pre-built Receivers, by processor and macOS version (see [Download](#download)):
+  - Apple Silicon: macOS 15 Sequoia or later
+  - Intel: macOS 15 Sequoia or later
+  - Intel: macOS 10.14 Mojave or later, for older iMacs (also runs on newer macOS versions)
 - Thunderbolt cable
 - See also [docs/Hardware.md](docs/Hardware.md) for hardware details, tested cables, adapters, and Thunderbolt networking ideas.
 
@@ -177,8 +179,28 @@ TargetBridge now has a conservative manifest-based addon system. Official manife
 
 - `TargetBridge-arm64.app.zip` — Sender (for Apple Silicon Macs)
 - `TargetBridge-x86_64.app.zip` — Sender (for Intel Macs)
-- `TargetBridge-Receiver-arm64.app.zip` — Apple Silicon Receiver (use machine as monitor for sender)
-- `TargetBridge-Receiver-x86_64.app.zip` — Intel Receiver (use machine as monitor for sender)
+
+Receivers, named by processor and the lowest macOS version they run on:
+
+| File | Processor | Runs on |
+|---|---|---|
+| `TargetBridge-Receiver-AppleSilicon-macOS15-Sequoia-and-later.app.zip` | Apple Silicon | macOS 15 Sequoia or later |
+| `TargetBridge-Receiver-Intel-macOS15-Sequoia-and-later.app.zip` | Intel | macOS 15 Sequoia or later |
+| `TargetBridge-Receiver-Intel-macOS10.14-Mojave-and-later.app.zip` | Intel | macOS 10.14 Mojave or later |
+
+Which Receiver for which Mac:
+- **Apple Silicon Mac:** the Apple Silicon Receiver.
+- **Intel Mac on macOS 15 Sequoia or macOS 26 Tahoe:** either Intel Receiver.
+  The macOS 15 Sequoia one comes with Homebrew's newer libraries.
+- **Intel Mac on macOS 10.14 Mojave up to macOS 14 Sonoma:** the macOS 10.14
+  Mojave Receiver. Typical for older iMacs, for example the iMac (Retina 5K,
+  27-inch, 2017), whose last supported version is macOS 13 Ventura.
+
+All three have the same features. The macOS 10.14 Mojave Receiver bundles
+SDL2 and a minimal FFmpeg (H.264/HEVC with hardware decoding) built for
+macOS 10.14 Mojave; the other two use Homebrew's libraries, which require
+macOS 15 Sequoia. Each build fails if any bundled part needs a newer macOS
+than its name says.
 
 Unzip and double-click. On first launch, grant Screen Recording permission to the sender.
 
@@ -187,8 +209,7 @@ If you build from source, app outputs go into `build/` folder.
 > **"App is damaged" warning?** macOS quarantines unsigned apps downloaded from the browser. Run this in Terminal, then try again:
 > ```bash
 > xattr -cr ~/Downloads/TargetBridge-arm64.app
-> xattr -cr ~/Downloads/TargetBridge-Receiver-arm64.app
-> xattr -cr ~/Downloads/TargetBridge-Receiver-x86_64.app
+> xattr -cr ~/Downloads/"TargetBridge Receiver.app"
 > ```
 
 ### Keep permissions across updates

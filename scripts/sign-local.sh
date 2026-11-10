@@ -55,6 +55,15 @@ find_apps() {
     /usr/bin/find "$1" -maxdepth 4 -name '*.app' -type d -prune -print0
 }
 
+app_minimum_macos() {
+    /usr/bin/defaults read "$1/Contents/Info" LSMinimumSystemVersion 2>/dev/null || echo "?"
+}
+
+# 0 if version $1 >= version $2 (numeric, dot-separated).
+version_at_least() {
+    [[ "$(printf '%s\n%s\n' "$2" "$1" | /usr/bin/sort -t. -k1,1n -k2,2n -k3,3n | /usr/bin/head -n1)" == "$2" ]]
+}
+
 app_architectures() {
     local exe
     exe="$(/usr/bin/defaults read "$1/Contents/Info" CFBundleExecutable 2>/dev/null || true)"
@@ -120,19 +129,27 @@ for app in "${APPS[@]}"; do
         *x86_64*) mac="Intel Macs" ;;
         *) mac="unknown Mac" ;;
     esac
-    echo "  $(basename "$app")  ($archs, for $mac)"
+    echo "  $(basename "$app")  ($archs, for $mac, macOS $(app_minimum_macos "$app") or later)"
     echo "    $app"
 done
 
 # Folder mode: offer to install the apps that run on this Mac.
 if [[ $FOLDER_MODE -eq 1 && -t 0 ]]; then
     this_arch="$(/usr/bin/uname -m)"
+    this_macos="$(/usr/bin/sw_vers -productVersion)"
     echo
     for app in "${APPS[@]}"; do
         archs="$(app_architectures "$app")"
         [[ "$archs" == *"$this_arch"* ]] || continue
+        minimum="$(app_minimum_macos "$app")"
+        # Skip apps this Mac's macOS can't run (e.g. a macOS 15 Sequoia
+        # Receiver on an iMac with macOS 13 Ventura).
+        if [[ "$minimum" != "?" ]] && ! version_at_least "$this_macos" "$minimum"; then
+            continue
+        fi
         name="$(basename "$app")"
-        read -r -p "Install $name ($archs) into /Applications on this Mac? [y/N] " answer
+        folder="$(basename "$(dirname "$app")")"
+        read -r -p "Install $name from $folder ($archs, macOS $minimum or later) into /Applications on this Mac? [y/N] " answer
         [[ "$answer" =~ ^[Yy] ]] || continue
         if /usr/bin/pgrep -xq "$(/usr/bin/defaults read "$app/Contents/Info" CFBundleExecutable)"; then
             echo "  Quit $name first, then run the script again."

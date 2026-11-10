@@ -41,6 +41,7 @@ Produced app:
 Note:
 
 - On an Intel iMac, build the receiver directly on that iMac so the resulting binary is `x86_64`.
+- Or skip building: the pre-built Intel Receivers run on macOS 15 Sequoia or later, and on macOS 10.14 Mojave or later (`TargetBridge-Receiver-Intel-macOS10.14-Mojave-and-later.app.zip`). See [Download](../README.md#download).
 
 ## Launch
 

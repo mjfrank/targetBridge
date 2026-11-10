@@ -41,6 +41,7 @@ cd TargetBridge-Receiver
 注意：
 
 - 在 Intel iMac 上请直接在该 iMac 上构建接收端，这样产出的二进制才是 `x86_64`。
+- 也可以不构建：预编译的 Intel 接收端可在 macOS 15 Sequoia 或更高版本上运行，另有一个可在 macOS 10.14 Mojave 或更高版本上运行（`TargetBridge-Receiver-Intel-macOS10.14-Mojave-and-later.app.zip`）。参见[下载](../README.md#download)。
 
 ## 启动
 

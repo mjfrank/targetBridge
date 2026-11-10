@@ -62,14 +62,15 @@ by double-clicking it and continue with Part 2.
 ### Part 3: sign every update in one go
 
 1. Make a new folder for the update, for example **TargetBridge 4.0** in
-   Downloads, and save all downloads in it: the Sender and the Receiver, for
-   Apple silicon (`arm64`) and Intel (`x86_64`), whichever you need. Zipped
-   or unzipped doesn't matter.
+   Downloads, and save all downloads in it, whichever you need: the Sender
+   for Apple silicon (`arm64`) or Intel (`x86_64`), and the Receivers (Apple
+   Silicon, macOS 15 Sequoia or later; Intel, macOS 15 Sequoia or later;
+   Intel, macOS 10.14 Mojave or later). Zipped or unzipped doesn't matter.
 2. Put the signing script into the same folder. In Terminal (adjust the
    folder name):
    ```bash
    cd ~/Downloads/"TargetBridge 4.0"
-   curl -fsSL -o sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/4.0/scripts/sign-local.sh
+   curl -fsSL -o sign-local.sh https://raw.githubusercontent.com/mjfrank/targetBridge/legacy-receiver/scripts/sign-local.sh
    ```
    You can also download
    [`sign-local.sh`](../scripts/sign-local.sh) in the browser and move it
@@ -80,13 +81,16 @@ by double-clicking it and continue with Part 2.
    ```
    It unpacks the zips into one folder per download, signs every app it
    finds and lists which app belongs on which Mac, for example
-   `TargetBridge Receiver.app (x86_64, for Intel Macs)`. Each app ends with
+   `TargetBridge Receiver.app (x86_64, for Intel Macs, macOS 10.14 or later)`.
+   Each app ends with
    a line like `ok: Authority=TargetBridge Code Signing`. If Keychain Access
    asks to allow `codesign` to use the key, enter your Mac password and
    choose **Always Allow**.
-4. For the apps that run on this Mac, the script asks
-   `Install … into /Applications on this Mac? [y/N]`. Quit the app first,
-   then answer `y`.
+4. For the apps that run on this Mac (its processor and its macOS version),
+   the script asks `Install … into /Applications on this Mac? [y/N]`. Quit
+   the app first, then answer `y`. Both Intel Receivers are called
+   `TargetBridge Receiver.app`; the question names the download folder, so
+   install only one of them.
 
 ### Part 4: copy the apps to your other Macs
 
