@@ -77,6 +77,13 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
  * tb_disp_render_nv12 as before. */
 int  tb_disp_render_pixbuf(struct tb_display *d, void *cv_pixel_buffer);
 
+/* Lossless DPCM frames (TBD2): decoded on the GPU by the TargetBridge Metal
+ * renderer and shown in 8 or 10 bits. supports_dpcm is what the Receiver
+ * advertises; render_dpcm returns -1 (picture unchanged) for a malformed
+ * frame or another renderer. */
+int  tb_disp_supports_dpcm(struct tb_display *d);
+int  tb_disp_render_dpcm(struct tb_display *d, const uint8_t *blob, size_t len);
+
 /* Colour management of the video (enum tb_color_space in color_space.h):
  * only with the TargetBridge Metal renderer. */
 int  tb_disp_color_managed(struct tb_display *d);

@@ -26,6 +26,9 @@ CFLAGS   += -O2 -g -Wall -Wextra -Wno-unused-parameter -std=c11
 CFLAGS   += $(shell $(PKG) --cflags libavcodec libavutil libswscale sdl2)
 CFLAGS   += -DTB_RECEIVER_VERSION=\"$(APP_VERSION)\" -DTB_RECEIVER_BUILD=\"$(APP_BUILD)\"
 CFLAGS   += -DTB_LANGUAGE_SOURCE_DIR=\"$(abspath ../../TargetBridge-Shared/Languages)\"
+# Lossless DPCM codec (TBD2), shared with the Sender (upstream PR #201).
+CODEC_DIR := ../../TargetBridge-Shared/codec
+CFLAGS   += -I$(CODEC_DIR)
 
 LDFLAGS  += $(shell $(PKG) --libs libavcodec libavutil libswscale sdl2)
 
@@ -34,7 +37,7 @@ ifeq ($(UNAME_S),Darwin)
 LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework IOSurface -framework CoreServices -framework CoreAudio -framework SystemConfiguration -framework Metal -framework QuartzCore -lcompression
 endif
 
-C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/idle_watchdog.c src/receiver_profile.c src/raw_regions.c src/version_check.c src/tb_i18n.c src/connection_log.c
+C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/idle_watchdog.c src/receiver_profile.c src/raw_regions.c src/version_check.c src/tb_i18n.c src/connection_log.c $(CODEC_DIR)/tb_dpcm.c
 OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m src/tb_background_ui.m src/tb_metal_view.m src/tb_signin_mode.m
 OBJ = $(C_SRC:.c=.o) $(OBJC_SRC:.m=.o)
 BIN = tbreceiver
@@ -51,7 +54,7 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -fobjc-arc -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_monitor_shield test_parser_yield test_connection_log test_receive_buffer test_color_space
+	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_monitor_shield test_parser_yield test_connection_log test_receive_buffer test_color_space test_dpcm
 
 # Unit tests for the packet parser. net.c is pure POSIX, so this needs no
 # ffmpeg/SDL/pkgconf — it runs anywhere, including CI, with no hardware.
@@ -96,13 +99,17 @@ test_parser_yield: tests/test_parser_yield.c src/net.c src/net.h src/proto.h
 test_connection_log: tests/test_connection_log.c src/connection_log.c src/connection_log.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_connection_log.c src/connection_log.c -o $@
 
+# DPCM reference codec: round trips, malformed blobs, adaptive colour.
+test_dpcm: tests/test_dpcm.c $(CODEC_DIR)/tb_dpcm.c $(CODEC_DIR)/tb_dpcm.h
+	$(CC) $(TEST_CFLAGS) -I$(CODEC_DIR) tests/test_dpcm.c $(CODEC_DIR)/tb_dpcm.c -o $@
+
 test_color_space: tests/test_color_space.c src/color_space.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_color_space.c -o $@
 
 test_receive_buffer: tests/test_receive_buffer.c src/net.c src/net.h src/proto.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_receive_buffer.c src/net.c $(TEST_LDFLAGS) -o $@
 
-test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_parser_yield test_connection_log test_receive_buffer test_color_space
+test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_parser_yield test_connection_log test_receive_buffer test_color_space test_dpcm
 	./$(TEST_BIN)
 	./$(TEST_INPUT_QUEUE_BIN)
 	./$(TEST_IDLE_WATCHDOG_BIN)
@@ -114,6 +121,7 @@ test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEI
 	./test_connection_log
 	./test_receive_buffer
 	./test_color_space
+	./test_dpcm
 
 # AppKit lifecycle coverage requires a logged-in macOS GUI session.
 test_monitor_shield: tests/test_monitor_shield.m src/tb_gesture_bridge.m src/tb_gesture_bridge.h src/tb_signin_mode.m

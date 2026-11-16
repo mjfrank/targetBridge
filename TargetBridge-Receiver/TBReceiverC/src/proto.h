@@ -29,6 +29,11 @@
  *   extra data connection opened while a session is active
  * type 0x26 = part of a raw frame over parallel data streams
  *   (see raw_regions.h)
+ * type 0x27 = lossless DPCM frame: one TBD2 blob (see tb_dpcm.h), a whole
+ *   frame in 8 or 10 bits. Only sent when the receiver advertises
+ *   "supportsDPCM"; the TBD2 adaptive-colour flag only with
+ *   "supportsDPCMAdaptiveColor". From upstream pull request #201, which uses
+ *   0x25 for it; here 0x25 was already the data stream hello.
  *
  * type 0x30 = heartbeat (JSON)
  * type 0x31 = teardown (JSON)
@@ -62,6 +67,7 @@
 #define TB_PKT_DATA_STREAM_HELLO 0x25
 /* One part of a raw frame sent over parallel data streams (raw_regions.h). */
 #define TB_PKT_RAW_REGIONS_PART 0x26
+#define TB_PKT_RAW_DPCM         0x27  /* lossless DPCM frame (TBD2) */
 #define TB_PKT_HEARTBEAT        0x30
 #define TB_PKT_TEARDOWN         0x31
 #define TB_PKT_CURSOR           0x32

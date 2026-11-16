@@ -37,7 +37,7 @@ Two further options build on **Uncompressed, LZ4, lossless (8-bit)**: both captu
 | **Uncompressed (8-bit)** | 8-bit 4:2:0 | 8-bit 4:2:0 | up to ~10.6 Gb/s | 60 Hz |
 | **Uncompressed, LZ4, lossless (8-bit)** | 8-bit 4:2:0 | 8-bit 4:2:0, LZ4 | less, depends on content | 60 Hz |
 | **Uncompressed, enhanced (10-bit dithered)** | 10-bit RGB | 8-bit 4:2:0, dithered, LZ4, parallel | like the 8-bit modes | 60 Hz |
-| **Uncompressed, full colour (10-bit)** | 10-bit RGB | 10-bit RGB 4:4:4, parallel, LZ4 while it pays off | ~2.7 times as much | ~30 fps for video and scrolling |
+| **Lossless 10-bit · changed rows** (formerly *Uncompressed, full colour*) | 10-bit RGB | 10-bit RGB 4:4:4, parallel, LZ4 while it pays off | ~2.7 times as much | ~30 fps for video and scrolling |
 
 - **Enhanced (10-bit dithered)**: captured in 10-bit, displayed in 8-bit. Before sending, a GPU shader converts only the changed rows to 8-bit 4:2:0 (BT.709, video range) with an ordered 4×4 (Bayer) dither. Gradients stay smooth without visible steps. The pattern depends only on the pixel position and repeats every 4 pixels and rows, so a still picture stays bit-identical from frame to frame and flat areas still compress well with LZ4. Without a usable Metal GPU the Sender captures 8-bit directly.
 - **Full colour (10-bit)**: the captured pixels are sent unchanged, 4 bytes per pixel, compressed with LZ4 while that pays off. Desktop content (moving windows, text, scrolling pages) shrinks several times. Video barely does, so after a frame that LZ4 shrank by less than 20 %, the next 30 frames go out raw before LZ4 is tried again, much like DisplayBridge sends video raw.
@@ -49,6 +49,18 @@ Two further options build on **Uncompressed, LZ4, lossless (8-bit)**: both captu
 - **Display refresh**: frames are presented as soon as they are complete. Waiting for the iMac's refresh (no tearing) is in Renderer (Expert Settings), off by default; hardware-decoded H.264/HEVC never waits.
 - **Stream profiles**: *5K 60 Uncompressed (8-bit)*, *5K 60 LZ4, lossless (8-bit)*, *5K 60 10-bit dithered* and *5K 60 Full 10-bit* select 5K at 60 Hz and the matching mode in one step. While one is selected, the video compression setting offers only the four uncompressed modes, so you can switch between them within the profile; the profile remembers the choice until you pick another profile.
 - **Parallel data streams** (session setting *Parallel connections*, on by default, for all uncompressed modes; choosing a 10-bit profile or mode turns it on): one TCP connection over Thunderbolt Bridge tends to hit a CPU-core limit before the cable is full. The Receiver advertises up to 4 extra connections and a per-session token; the Sender opens them, splits each frame's changed rows into parts of similar size and sends one part per connection (packet type 0x26, with the part count in byte 12 of the header). Parts can arrive out of order, so the Receiver remembers for every pair of rows which frame wrote it last, and an older part never overwrites newer rows. If no extra connection comes up, frames go over the session connection as before.
+
+Lossless 10-bit · Full Frames (DPCM, Experimental)
+==================================================
+
+From upstream pull request #201 (Aykut Alpgiray Ates, Biao), as a second lossless 10-bit option next to *Lossless 10-bit · changed rows*.
+
+- **Format**: TBD2 tile-DPCM, described in `TargetBridge-Shared/codec/tb_dpcm.h`. Each 8×8 tile is independent: a seed pixel, per-channel bit widths and residuals against the left neighbour (first column: the pixel above), zigzag-coded and bit-packed. 64 tiles share one byte-aligned base offset, so a GPU threadgroup per tile can find its data. Lossless at 8 and 10 bits; a tile never grows beyond raw size. The optional adaptive colour extension codes a tile as (B−G, G, R−G) when that is smaller.
+- **Sender**: captures packed 10-bit RGB (`l10r`), encodes each whole frame on the GPU (`tb_dpcm_gpu_encode`, or the adaptive variant when the Receiver supports it) and sends it as packet type 0x27 over the session connection. If the GPU encoder fails, the CPU reference encoder takes over. Frames are dropped, not queued, while three packets are still in flight.
+- **Receiver**: validates the blob (`tb_dpcm_parse` re-derives every offset, since it is network data), copies it into a GPU buffer, decodes it with #201's kernel (one threadgroup per tile, one thread per pixel) and copies the pixels into the 10-bit texture of the TargetBridge Metal renderer, which draws it like the changed-rows mode.
+- **Capabilities**: `supportsDPCM` and `supportsDPCMAdaptiveColor` in the display profile, only with the TargetBridge Metal renderer and a GPU that runs the kernel. Without them the Sender uses *Lossless 10-bit · changed rows*.
+- **Differences from #201**: packet type 0x27 instead of 0x25; decoding in this version's renderer instead of #201's own Metal layer; synchronous encoding per frame (#201 also has band-wise and asynchronous encoder calls, which are included in the codec but not used yet); no 4.5K presets.
+- **Stats overlay**: `DPCM lossless`.
 
 Colour Management and Zero-Copy Video (Experimental)
 ====================================================

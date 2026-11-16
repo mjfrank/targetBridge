@@ -155,6 +155,7 @@ struct app {
     uint64_t stats_draw_count;
     uint64_t stats_zero_copy_frames; /* decoded frames shown without a copy */
     uint64_t stats_copy_frames;      /* decoded frames copied into textures */
+    uint64_t stats_dpcm_frames;      /* lossless DPCM frames decoded on the GPU */
     uint64_t stats_bytes;
     int      show_window_at_start;
     int      window_requested;
@@ -1101,6 +1102,22 @@ static void on_frame(const uint8_t *y, int y_stride,
     note_draw_time(a, draw_start);
 }
 
+/* Lossless DPCM frame (TBD2), decoded on the GPU by the TargetBridge Metal
+ * renderer. Malformed frames are rejected there and leave the picture. */
+static void handle_raw_dpcm(struct app *a, const uint8_t *payload, size_t len) {
+    if (!payload || len < 12) return;
+    const uint64_t draw_start = now_us();
+    if (tb_disp_render_dpcm(a->disp, payload, len) != 0) return;
+    /* Width and height: little-endian, bytes 4..11 of the TBD2 header. */
+    const int w = (int)((uint32_t)payload[4] | (uint32_t)payload[5] << 8 |
+                        (uint32_t)payload[6] << 16 | (uint32_t)payload[7] << 24);
+    const int h = (int)((uint32_t)payload[8] | (uint32_t)payload[9] << 8 |
+                        (uint32_t)payload[10] << 16 | (uint32_t)payload[11] << 24);
+    note_video_frame(a, w, h);
+    note_draw_time(a, draw_start);
+    a->stats_dpcm_frames++;
+}
+
 /* Draws one decoded frame: without a copy when "Zero-copy" is on and the
  * frame allows it, otherwise uploaded into textures. */
 static void present_pixbuf(struct app *a, CVPixelBufferRef pb) {
@@ -1560,6 +1577,10 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         a->session_active = 1;
         fprintf(stderr, "[main] hello from sender\n");
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.sender_connected_profile_sent");
+        break;
+    case TB_PKT_RAW_DPCM:
+        a->session_active = 1;
+        handle_raw_dpcm(a, payload, len);
         break;
     case TB_PKT_CREATE_SESSION_ACK:
         a->session_active = 1;
@@ -2412,7 +2433,8 @@ static void send_receiver_info(struct app *a) {
         "\"supportsHEVCDecode\":%s,\"supportsHEVCSoftwareDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":%s,"
         "\"appVersion\":\"" TB_RECEIVER_VERSION "\",\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s,"
-        "\"supportsColorSpaceTags\":%s,\"panelColorSpace\":\"%s\"}",
+        "\"supportsColorSpaceTags\":%s,\"panelColorSpace\":\"%s\","
+        "\"supportsDPCM\":%s,\"supportsDPCMAdaptiveColor\":%s}",
         escaped_name,
         profile.panel_w,
         profile.panel_h,
@@ -2434,7 +2456,11 @@ static void send_receiver_info(struct app *a) {
         tb_true_tone_supported() ? "true" : "false",
         /* Colour management needs the TargetBridge Metal renderer. */
         tb_disp_color_managed(a->disp) ? "true" : "false",
-        tb_color_space_panel_name(tb_screen_supports_display_p3()));
+        tb_color_space_panel_name(tb_screen_supports_display_p3()),
+        /* Lossless DPCM needs the GPU decoder of the TargetBridge Metal
+         * renderer; it always understands the adaptive-colour extension. */
+        tb_disp_supports_dpcm(a->disp) ? "true" : "false",
+        tb_disp_supports_dpcm(a->disp) ? "true" : "false");
     if (json_len <= 0 || (size_t)json_len >= sizeof(json)) return;
 
     const size_t packet_len = 4 + 1 + (size_t)json_len;
@@ -3047,7 +3073,9 @@ int main(int argc, char **argv) {
             char changed[64] = "";
             char video_path[64] = "";
             /* Decoded video: how it reached the screen, and its colour space. */
-            if (a.stats_zero_copy_frames || a.stats_copy_frames) {
+            if (a.stats_dpcm_frames) {
+                snprintf(video_path, sizeof(video_path), " | DPCM lossless");
+            } else if (a.stats_zero_copy_frames || a.stats_copy_frames) {
                 snprintf(video_path, sizeof(video_path), " | %s",
                          a.stats_copy_frames == 0 ? "zero-copy"
                              : a.stats_zero_copy_frames == 0 ? "copy" : "zero-copy + copy");
@@ -3080,6 +3108,7 @@ int main(int argc, char **argv) {
             a.stats_draw_count = 0;
             a.stats_zero_copy_frames = 0;
             a.stats_copy_frames = 0;
+            a.stats_dpcm_frames = 0;
             a.stats_bytes = 0;
             a.stats_region_rows = 0;
             a.stats_region_height = 0;

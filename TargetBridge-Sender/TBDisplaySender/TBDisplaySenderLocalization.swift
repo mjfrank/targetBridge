@@ -691,6 +691,8 @@ extension TBDisplayCapturePreset {
             return TBDisplaySenderL10n.text("sender.profile.native_5k_60_10bit_dithered", language)
         case .native5k60Full10Bit:
             return TBDisplaySenderL10n.text("sender.profile.native_5k_60_full_10bit", language)
+        case .native5k60DPCM:
+            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_dpcm", language)
         }
     }
 }

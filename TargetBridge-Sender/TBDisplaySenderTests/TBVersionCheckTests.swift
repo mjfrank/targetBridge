@@ -25,7 +25,8 @@ final class TBVersionCheckTests: XCTestCase {
         XCTAssertNil(TBDisplayCapturePreset.native5k60Experimental.defaultCodecPreference)
         // Uncompressed profiles allow switching between the uncompressed modes only.
         XCTAssertEqual(TBDisplayCapturePreset.native5k60Full10Bit.allowedCodecPreferences,
-                       [.uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit])
+                       [.uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM])
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60DPCM.defaultCodecPreference, .losslessDPCM)
         XCTAssertEqual(TBDisplayCapturePreset.native5k60Experimental.allowedCodecPreferences,
                        TBDisplayCodecPreference.allCases)
         for preset in [TBDisplayCapturePreset.native5k60Uncompressed, .native5k60Full10Bit] {
@@ -38,6 +39,7 @@ final class TBVersionCheckTests: XCTestCase {
     func testAutomationAcceptsTheNewProfiles() {
         XCTAssertEqual(TBSenderAutomation.parsePreset("5k60lz4"), .native5k60UncompressedLZ4)
         XCTAssertEqual(TBSenderAutomation.parsePreset("5k60full10"), .native5k60Full10Bit)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("5k60dpcm"), .native5k60DPCM)
         XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60Enhanced10Bit"), .native5k60Enhanced10Bit)
     }
 }

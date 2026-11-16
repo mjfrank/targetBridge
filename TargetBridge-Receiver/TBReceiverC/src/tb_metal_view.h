@@ -7,6 +7,7 @@
  *     CbCr texture, converted to RGB (BT.709, video range) in a shader.
  *   - 10-bit RGB (full colour): a 10-bit (BGR10A2) texture on a 10-bit
  *     drawable, so it is shown in 10 bits; SDL2 has no 10-bit textures.
+ *   - Lossless DPCM frames: decoded on the GPU into such a texture.
  * Decoded H.264/HEVC frames can also be shown without any copy: the
  * decoder's IOSurface-backed picture is used as the texture itself
  * ("zero-copy", experimental, see tb_metal_view_show_pixbuf).
@@ -61,6 +62,14 @@ int  tb_metal_view_upload_rgb10(struct tb_metal_view *v,
  * (nothing changed) when the frame cannot be shown this way; the caller then
  * uploads it with tb_metal_view_upload_nv12. */
 int  tb_metal_view_show_pixbuf(struct tb_metal_view *v, void *cv_pixel_buffer);
+
+/* Lossless DPCM frames (TBD2, see tb_dpcm.h): decoded on the GPU into an
+ * 8-bit or 10-bit texture and drawn like the 10-bit RGB mode. supports_dpcm
+ * compiles the decoder once and reports whether it works on this GPU.
+ * show_dpcm validates the blob (it is network data) and returns -1 without
+ * changing the picture when it is malformed, too large or cannot be decoded. */
+int  tb_metal_view_supports_dpcm(struct tb_metal_view *v);
+int  tb_metal_view_show_dpcm(struct tb_metal_view *v, const uint8_t *blob, size_t len);
 
 /* Colour management of the video layer (enum tb_color_space). */
 void tb_metal_view_set_color_space(struct tb_metal_view *v, int color_space);

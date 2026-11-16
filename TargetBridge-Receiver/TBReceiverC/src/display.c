@@ -1436,6 +1436,24 @@ int tb_disp_render_pixbuf(struct tb_display *d, void *cv_pixel_buffer) {
     return 0;
 }
 
+int tb_disp_supports_dpcm(struct tb_display *d) {
+    return d && d->metal_view ? tb_metal_view_supports_dpcm(d->metal_view) : 0;
+}
+
+int tb_disp_render_dpcm(struct tb_display *d, const uint8_t *blob, size_t len) {
+    if (!d || !d->metal_view || !blob || len < 8) return -1;
+    tb_disp_set_connection_state(d, 1);
+    /* Bit 1 of the TBD2 flags byte (offset 14) marks 10-bit samples; they
+     * are shown on a 10-bit drawable. Like the uncompressed modes, frames
+     * may wait for the display's refresh. */
+    const int ten_bit = len > 14 && (blob[14] & 0x02u) != 0;
+    tb_disp_use_view(d, 1, ten_bit, d->display_sync);
+    if (tb_metal_view_show_dpcm(d->metal_view, blob, len) != 0) return -1;
+    d->last_video_frame_time = SDL_GetTicks();
+    tb_disp_render_current(d);
+    return 0;
+}
+
 int tb_disp_color_managed(struct tb_display *d) {
     return d && d->metal_view ? 1 : 0;
 }

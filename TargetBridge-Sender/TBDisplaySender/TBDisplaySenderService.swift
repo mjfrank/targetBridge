@@ -36,6 +36,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     case native5k60UncompressedLZ4
     case native5k60Enhanced10Bit
     case native5k60Full10Bit
+    case native5k60DPCM
 
     var id: String { rawValue }
 
@@ -47,6 +48,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .native5k60UncompressedLZ4: return .uncompressedLZ4
         case .native5k60Enhanced10Bit: return .uncompressedEnhanced
         case .native5k60Full10Bit: return .uncompressedFull10Bit
+        case .native5k60DPCM: return .losslessDPCM
         default: return nil
         }
     }
@@ -87,6 +89,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "5K 60 10-bit dithered"
         case .native5k60Full10Bit:
             return "5K 60 Full 10-bit"
+        case .native5k60DPCM:
+            return "5K 60 10-bit lossless (DPCM)"
         }
     }
 
@@ -118,6 +122,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "5120 × 2880 @ 60"
         case .native5k60Full10Bit:
             return "5120 × 2880 @ 60, ~30 for video"
+        case .native5k60DPCM:
+            return "5120 × 2880 @ 60"
         }
     }
 
@@ -133,7 +139,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 3840
         case .retina4k60:
             return 4096
-        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return 5120
         }
     }
@@ -150,7 +156,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 2160
         case .retina4k60:
             return 2304
-        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return 2880
         }
     }
@@ -173,7 +179,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 120_000_000
         case .native5k:
             return 120_000_000
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return 150_000_000
         }
     }
@@ -192,6 +198,8 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return "10-bit dithered"
         case .native5k60Full10Bit:
             return "Full 10-bit"
+        case .native5k60DPCM:
+            return "DPCM 10-bit"
         }
     }
 
@@ -199,7 +207,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return kCMVideoCodecType_H264
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return kCMVideoCodecType_HEVC
         }
     }
@@ -212,7 +220,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .standard1080p, .standard1440p:
             return 3
         case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             // Five surfaces protect WindowServer from starvation during
             // high-frame-rate 4K capture while the serial pipeline prevents an
             // application-side frame backlog.
@@ -236,7 +244,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return 60
         }
     }
@@ -262,7 +270,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             // See maxKeyFrameIntervalDuration. The uncompressed profiles use
             // the encoder only when an older Receiver makes them fall back.
             return 240
@@ -283,7 +291,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 1
         case .native5k:
             return 1
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             // A 5K IDR is several times the size of a P-frame and costs the
             // receiver several frame budgets to transfer, decode and upload.
             // One per second produced a regular once-a-second hitch at 60 fps.
@@ -302,7 +310,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     /// picture is busiest.
     var peakBitRate: Int? {
         switch self {
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return averageBitRate * 3 / 2
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60,
              .crisp2160p60, .retina4k60, .native5k:
@@ -314,7 +322,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return true
         }
     }
@@ -330,7 +338,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return 1
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return 0
         }
     }
@@ -339,7 +347,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .standard1440p:
             return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return true
         }
     }
@@ -355,7 +363,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         switch self {
         case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
             return .nominal
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return .best
         }
     }
@@ -372,7 +380,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 60
         case .native5k:
             return 48
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return 60
         }
     }
@@ -414,7 +422,7 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .standard1080p, .smooth1080p60:
             return true
         case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
             return false
         }
     }
@@ -478,16 +486,21 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     /// About 30 frames per second at 5K. Falls back to `uncompressedEnhanced`
     /// if the receiver cannot show it.
     case uncompressedFull10Bit
+    /// Whole frames in 10-bit RGB, losslessly compressed with tile-DPCM on the
+    /// GPU and decoded on the Receiver's GPU (upstream PR #201). Falls back to
+    /// `uncompressedFull10Bit` if the receiver cannot decode it.
+    case losslessDPCM
 
     var usesRawFrames: Bool {
         switch self {
-        case .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit: return true
+        case .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM: return true
         case .automatic, .h264, .hevc: return false
         }
     }
 
     var compressesRawFrames: Bool {
         self == .uncompressedLZ4 || self == .uncompressedEnhanced || self == .uncompressedFull10Bit
+            || self == .losslessDPCM
     }
 
     /// All uncompressed modes can spread frames over parallel connections
@@ -800,6 +813,86 @@ private final class TBPendingParts: @unchecked Sendable {
     init(count: Int) { self.count = count }
 }
 
+/// Lossless tile-DPCM (TBD2) encoder for packed 10-bit RGB captures, from
+/// upstream pull request #201 by Aykut Alpgiray Ates and Biao. Encodes on the
+/// GPU; if that fails, the CPU reference encoder produces the same format
+/// (correct, but much slower). Confined to the video pipeline's queue.
+final class TBDPCMFrameEncoder {
+    private var gpu: OpaquePointer?
+    private var cpuBuffer = Data()
+    private let adaptiveColor: Bool
+    var usesGPU: Bool { gpu != nil }
+
+    init(useGPU: Bool = true, adaptiveColor: Bool = false) {
+        gpu = useGPU ? tb_dpcm_gpu_create() : nil
+        self.adaptiveColor = adaptiveColor
+    }
+
+    deinit {
+        if let gpu { tb_dpcm_gpu_destroy(gpu) }
+    }
+
+    /// The encoded frame alone (for tests).
+    func encode(_ pixelBuffer: CVPixelBuffer) -> Data? {
+        withEncodedBytes(pixelBuffer) { Data(buffer: $0) }
+    }
+
+    /// A complete packet of type 0x27.
+    func encodePacket(_ pixelBuffer: CVPixelBuffer) -> Data? {
+        withEncodedBytes(pixelBuffer) {
+            TBMonitorProtocol.makePacket(type: .rawDPCM, payloadBytes: $0)
+        }
+    }
+
+    /// The encoded bytes are only borrowed inside `makeOwnedData`.
+    private func withEncodedBytes<Owned>(_ pixelBuffer: CVPixelBuffer,
+                                         makeOwnedData: (UnsafeBufferPointer<UInt8>) -> Owned) -> Owned? {
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_ARGB2101010LEPacked,
+              !CVPixelBufferIsPlanar(pixelBuffer),
+              width > 0, height > 0, width <= 5120, height <= 2880,
+              stride >= width * 4, stride <= Int(Int32.max),
+              CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess
+        else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer)?.assumingMemoryBound(to: UInt8.self)
+        else { return nil }
+
+        if let gpu {
+            var blob: UnsafePointer<UInt8>?
+            let count = adaptiveColor
+                ? tb_dpcm_gpu_encode_adaptive(gpu, base, Int32(stride), Int32(width), Int32(height), 1, 0, &blob)
+                : tb_dpcm_gpu_encode(gpu, base, Int32(stride), Int32(width), Int32(height), 1, 0, &blob)
+            if count > 0, count < Int(TBMonitorProtocol.maxPacketLength), let blob {
+                return makeOwnedData(UnsafeBufferPointer(start: blob, count: count))
+            }
+            tb_dpcm_gpu_destroy(gpu)
+            self.gpu = nil
+            TBLog.connection.warning("dpcm: GPU encoder failed; using the CPU encoder, the frame rate may drop")
+        }
+        let capacity = tb_dpcm_max_size(Int32(width), Int32(height))
+        guard capacity > 0, capacity < Int(TBMonitorProtocol.maxPacketLength) else { return nil }
+        if cpuBuffer.count != capacity {
+            cpuBuffer = Data(count: capacity)
+        }
+        let count = cpuBuffer.withUnsafeMutableBytes { output in
+            if adaptiveColor {
+                return tb_dpcm_encode_adaptive(base, Int32(stride), Int32(width), Int32(height), 1,
+                                               output.bindMemory(to: UInt8.self).baseAddress, capacity)
+            }
+            return tb_dpcm_encode(base, Int32(stride), Int32(width), Int32(height), 1,
+                                  output.bindMemory(to: UInt8.self).baseAddress, capacity)
+        }
+        guard count > 0 else { return nil }
+        return cpuBuffer.withUnsafeBytes { output in
+            makeOwnedData(UnsafeBufferPointer(start: output.bindMemory(to: UInt8.self).baseAddress,
+                                             count: count))
+        }
+    }
+}
+
 private final class TBVideoPipeline: @unchecked Sendable {
     let queue = DispatchQueue(label: "fd.tbmonitor.sender.pipeline", qos: .userInteractive)
 
@@ -819,6 +912,11 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private let dataConnections: [NWConnection]
     /// Converts 10-bit captures to dithered 8-bit NV12; nil captures NV12 directly.
     private let tenBitConverter: TBTenBitConverter?
+    /// Whole 10-bit frames as lossless DPCM (packet type 0x27).
+    private let sendsDPCM: Bool
+    private let dpcmAdaptiveColor: Bool
+    private var dpcmEncoder: TBDPCMFrameEncoder?
+    private var loggedDPCMProblem = false
     /// Colour space the session is labelled with; nil leaves the video
     /// unlabelled, as before (older Receiver or SDL renderer).
     let colorSpace: TBVideoColorSpace?
@@ -872,6 +970,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
          sendsRawRGB10: Bool = false,
          dataConnections: [NWConnection] = [],
          tenBitConverter: TBTenBitConverter? = nil,
+         sendsDPCM: Bool = false,
+         dpcmAdaptiveColor: Bool = false,
          colorSpace: TBVideoColorSpace? = nil,
          ackAlreadySent: Bool,
          onFirstFrame: @escaping @Sendable () -> Void) {
@@ -886,6 +986,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.sendsRawRGB10 = usesRawNV12 && usesRawRegions && sendsRawRGB10
         self.dataConnections = usesRawNV12 && usesRawRegions ? dataConnections : []
         self.tenBitConverter = usesRawNV12 && usesRawRegions ? tenBitConverter : nil
+        self.sendsDPCM = usesRawNV12 && sendsDPCM
+        self.dpcmAdaptiveColor = self.sendsDPCM && dpcmAdaptiveColor
         self.colorSpace = colorSpace
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
         self.ackSent = ackAlreadySent
@@ -1055,6 +1157,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard frameRatePacer.shouldEmit(presentationTime: pts) else {
             droppedByFrameRatePacer += 1
+            return
+        }
+        if sendsDPCM {
+            sendDPCMFrame(pixelBuffer)
             return
         }
         if usesRawRegions {
@@ -1228,6 +1334,38 @@ private final class TBVideoPipeline: @unchecked Sendable {
         payload.append(UnsafeBufferPointer(start: uvBase.assumingMemoryBound(to: UInt8.self), count: uvSize))
 
         let packet = TBMonitorProtocol.makePacket(type: .rawFrame, payload: payload)
+        pendingVideoPackets += 1
+        connection.send(content: packet, completion: .contentProcessed({ [weak self] _ in
+            guard let self else { return }
+            self.queue.async {
+                self.pendingVideoPackets = max(0, self.pendingVideoPackets - 1)
+            }
+        }))
+        lock.lock(); _sentFrames += 1; lock.unlock()
+    }
+
+    /// Lossless DPCM: encodes the whole 10-bit frame on the GPU and sends it
+    /// as one packet. Never reinterprets another pixel format as 10-bit RGB.
+    private func sendDPCMFrame(_ pixelBuffer: CVPixelBuffer) {
+        guard running else { return }
+        // Backpressure: never pile frames on top of a network that can't keep up.
+        if pendingVideoPackets >= preset.maxPendingVideoPackets {
+            droppedBeforeEncodeFrames += 1
+            return
+        }
+        if dpcmEncoder == nil {
+            dpcmEncoder = TBDPCMFrameEncoder(adaptiveColor: dpcmAdaptiveColor)
+            TBLog.connection.info("dpcm: encoder on \(self.dpcmEncoder?.usesGPU == true ? "GPU" : "CPU", privacy: .public) adaptiveColor=\(self.dpcmAdaptiveColor, privacy: .public)")
+        }
+        guard let packet = dpcmEncoder?.encodePacket(pixelBuffer) else {
+            droppedBeforeEncodeFrames += 1
+            if !loggedDPCMProblem {
+                loggedDPCMProblem = true
+                TBLog.connection.error("dpcm: frame not encoded; expected packed 10-bit RGB (l10r) up to 5120x2880, got format=\(CVPixelBufferGetPixelFormatType(pixelBuffer), privacy: .public)")
+            }
+            return
+        }
+        sendSessionAckIfNeeded()
         pendingVideoPackets += 1
         connection.send(content: packet, completion: .contentProcessed({ [weak self] _ in
             guard let self else { return }
@@ -2030,7 +2168,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         let preferredCodec: CMVideoCodecType
 
         switch preference {
-        case .automatic, .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit:
+        case .automatic, .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM:
             preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
                 ? kCMVideoCodecType_HEVC
                 : kCMVideoCodecType_H264
@@ -3383,30 +3521,42 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 codecDecision = resolvedDecision
             }
             let codecType = codecDecision.codecType
+            // Lossless DPCM: whole 10-bit frames, encoded and decoded on the
+            // GPUs (upstream PR #201). A receiver that cannot decode it gets
+            // the changed-rows 10-bit mode instead.
+            let sendsDPCM = usesRawNV12
+                && effectiveCodecPreference == .losslessDPCM
+                && profile.supportsDPCM == true
+            let rowsPreference: TBDisplayCodecPreference =
+                effectiveCodecPreference == .losslessDPCM ? .uncompressedFull10Bit : effectiveCodecPreference
             // Changed rows only, when the receiver understands it. RAW_REGIONS=0
             // turns it off for comparisons on real hardware.
-            let usesRawRegions = usesRawNV12
+            let usesRawRegions = usesRawNV12 && !sendsDPCM
                 && profile.supportsRawRegions == true
                 && ProcessInfo.processInfo.environment["RAW_REGIONS"] != "0"
             let compressesRawRegions = usesRawRegions
-                && effectiveCodecPreference.compressesRawFrames
+                && rowsPreference.compressesRawFrames
                 && profile.supportsRawLZ4 == true
             // Full 10-bit RGB needs a receiver that can show it; otherwise the
             // 10-bit capture is dithered to 8-bit NV12 like "enhanced".
             let sendsRawRGB10 = usesRawRegions
-                && effectiveCodecPreference == .uncompressedFull10Bit
+                && rowsPreference == .uncompressedFull10Bit
                 && profile.supportsRawRGB10 == true
             let tenBitConverter: TBTenBitConverter? =
                 usesRawRegions && !sendsRawRGB10
-                && (effectiveCodecPreference == .uncompressedEnhanced
-                    || effectiveCodecPreference == .uncompressedFull10Bit)
+                && (rowsPreference == .uncompressedEnhanced
+                    || rowsPreference == .uncompressedFull10Bit)
                 ? TBTenBitConverter() : nil
-            let capturesTenBit = sendsRawRGB10 || tenBitConverter != nil
-            let dataStreams = usesRawRegions && effectiveCodecPreference.usesParallelStreams && parallelStreams
+            let capturesTenBit = sendsDPCM || sendsRawRGB10 || tenBitConverter != nil
+            let dataStreams = usesRawRegions && rowsPreference.usesParallelStreams && parallelStreams
                 ? await openDataStreams(for: profile)
                 : []
             let codecName: String
-            if usesRawNV12 {
+            if sendsDPCM {
+                codecName = profile.supportsDPCMAdaptiveColor == true
+                    ? "DPCM RGB 10-bit, lossless, adaptive colour"
+                    : "DPCM RGB 10-bit, lossless"
+            } else if usesRawNV12 {
                 var parts = [sendsRawRGB10 ? "RGB 10-bit RAW" : "NV12 RAW"]
                 if compressesRawRegions { parts.append("LZ4") }
                 if tenBitConverter != nil { parts.append("10-bit dithered") }
@@ -3440,6 +3590,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 sendsRawRGB10: sendsRawRGB10,
                 dataConnections: dataStreams,
                 tenBitConverter: tenBitConverter,
+                sendsDPCM: sendsDPCM,
+                dpcmAdaptiveColor: sendsDPCM && profile.supportsDPCMAdaptiveColor == true,
                 colorSpace: activeColorSpace,
                 ackAlreadySent: sessionAckSent,
                 onFirstFrame: { [weak self] in

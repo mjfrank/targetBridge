@@ -19,6 +19,7 @@ targets:
       - path: ../TargetBridge-Shared
         excludes:
           - "**/*.md"
+          - "**/*.o"
           - "scripts/**"
       - path: TargetBridgeSupport/Assets.xcassets
       - path: TargetBridgeSupport/Localizations
@@ -34,6 +35,9 @@ targets:
         SWIFT_VERSION: "6.0"
         ENABLE_HARDENED_RUNTIME: NO
         SWIFT_STRICT_CONCURRENCY: minimal
+        # The bridging header imports tb_dpcm.h / tb_dpcm_gpu.h from the shared
+        # codec directory (lossless DPCM, upstream PR #201).
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/../TargetBridge-Shared/codec"
         SWIFT_OBJC_BRIDGING_HEADER: TargetBridgeSupport/TargetBridge-Bridging-Header.h
         GENERATE_INFOPLIST_FILE: YES
         # Base plist merged with the auto-generated keys; declares the targetbridge:// URL scheme.

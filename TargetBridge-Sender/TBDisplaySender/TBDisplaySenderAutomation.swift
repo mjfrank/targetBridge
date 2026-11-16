@@ -546,6 +546,7 @@ enum TBSenderAutomation {
         case "5k60lz4": return .native5k60UncompressedLZ4
         case "5k60dither", "5k6010bit": return .native5k60Enhanced10Bit
         case "5k60full10", "5k60full10bit": return .native5k60Full10Bit
+        case "5k60dpcm": return .native5k60DPCM
         case "5k", "native", "5120x2880": return .native5k
         default: return nil
         }

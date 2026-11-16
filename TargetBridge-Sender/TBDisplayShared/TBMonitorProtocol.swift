@@ -16,6 +16,11 @@ enum TBMonitorPacketType: UInt8 {
     case dataStreamHello = 0x25
     /// One part of a raw frame sent over parallel data streams.
     case rawRegionsPart = 0x26
+    /// A whole frame, losslessly compressed with tile-DPCM (TBD2; see
+    /// TargetBridge-Shared/codec/tb_dpcm.h). Only to receivers that advertise
+    /// supportsDPCM. Upstream pull request #201 uses 0x25, which is the data
+    /// stream hello here.
+    case rawDPCM = 0x27
     case heartbeat = 0x30
     case teardown = 0x31
     case cursor = 0x32
@@ -76,6 +81,10 @@ struct TBMonitorDisplayProfile: Codable {
     var supportsColorSpaceTags: Bool?
     /// "displayP3" when the Receiver's panel shows the P3 gamut, else "srgb".
     var panelColorSpace: String?
+    /// The Receiver decodes lossless DPCM frames (TBD2) on its GPU.
+    var supportsDPCM: Bool?
+    /// It also understands TBD2's adaptive colour extension.
+    var supportsDPCMAdaptiveColor: Bool?
 }
 
 struct TBMonitorDataStreamHello: Codable {
@@ -176,6 +185,17 @@ enum TBMonitorProtocol {
         appendBE32(&packet, UInt32(1 + payload.count))
         packet.append(type.rawValue)
         packet.append(payload)
+        return packet
+    }
+
+    /// Same, from bytes the caller only borrows (e.g. an encoder's buffer).
+    static func makePacket(type: TBMonitorPacketType, payloadBytes: UnsafeBufferPointer<UInt8>) -> Data {
+        var packet = Data(capacity: 5 + payloadBytes.count)
+        appendBE32(&packet, UInt32(1 + payloadBytes.count))
+        packet.append(type.rawValue)
+        if let base = payloadBytes.baseAddress {
+            packet.append(base, count: payloadBytes.count)
+        }
         return packet
     }
 

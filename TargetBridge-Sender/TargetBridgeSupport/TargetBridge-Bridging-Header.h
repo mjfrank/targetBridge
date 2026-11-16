@@ -12,6 +12,11 @@
 #import <Foundation/Foundation.h>
 #import <CoreGraphics/CoreGraphics.h>
 
+/* The lossless tile-DPCM (TBD2) encoder, shared with the Receiver (upstream
+ * pull request #201). See TargetBridge-Shared/codec/tb_dpcm.h for the format. */
+#import "tb_dpcm.h"
+#import "tb_dpcm_gpu.h"
+
 // MARK: - CGVirtualDisplay Private API (macOS 14+)
 
 @interface CGVirtualDisplayDescriptor : NSObject

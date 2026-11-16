@@ -9,7 +9,7 @@ fixture = <<~SWIFT
   import CoreMedia
   enum TBDisplayCodecPreference {
       case automatic, h264, hevc
-      case uncompressed, uncompressedLZ4, uncompressedEnhanced, uncompressedFull10Bit
+      case uncompressed, uncompressedLZ4, uncompressedEnhanced, uncompressedFull10Bit, losslessDPCM
   }
   struct TBDisplayCapturePreset {
       let codecType: CMVideoCodecType
