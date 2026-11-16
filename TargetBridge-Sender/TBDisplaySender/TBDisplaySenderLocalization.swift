@@ -663,36 +663,8 @@ enum TBDisplaySenderL10n {
 }
 
 extension TBDisplayCapturePreset {
+    /// Resolution and frame rate ("5K 48 Hz"); names are not translated.
     func title(_ language: TBDisplaySenderLanguage) -> String {
-        switch self {
-        case .standard1080p:
-            return TBDisplaySenderL10n.text("sender.profile.full_hd", language)
-        case .smooth1080p60:
-            return TBDisplaySenderL10n.text("sender.profile.full_hd_60", language)
-        case .standard1440p:
-            return TBDisplaySenderL10n.text("sender.profile.standard", language)
-        case .smooth1440p60:
-            return TBDisplaySenderL10n.text("sender.profile.smooth", language)
-        case .smooth1800p60:
-            return TBDisplaySenderL10n.text("sender.profile.smooth_plus", language)
-        case .crisp2160p60:
-            return TBDisplaySenderL10n.text("sender.profile.crisp", language)
-        case .retina4k60:
-            return TBDisplaySenderL10n.text("sender.profile.retina_4k", language)
-        case .native5k:
-            return TBDisplaySenderL10n.text("sender.profile.native_5k", language)
-        case .native5k60Experimental:
-            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_experimental", language)
-        case .native5k60Uncompressed:
-            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_uncompressed", language)
-        case .native5k60UncompressedLZ4:
-            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_lz4", language)
-        case .native5k60Enhanced10Bit:
-            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_10bit_dithered", language)
-        case .native5k60Full10Bit:
-            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_full_10bit", language)
-        case .native5k60DPCM:
-            return TBDisplaySenderL10n.text("sender.profile.native_5k_60_dpcm", language)
-        }
+        title
     }
 }

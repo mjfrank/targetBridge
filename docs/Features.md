@@ -30,7 +30,30 @@ Related reading:
 - [docs/QuickStart-IT.md](docs/QuickStart-IT.md)
 - [docs/QuickStart-ZH.md](docs/QuickStart-ZH.md)
 
-## Stream Profiles and Codecs
+## Resolution, Frame Rate, Bitrate and Compression
+
+Each session sets four things before it starts:
+
+- **Resolution**: Full HD (1920 × 1080), QHD (2560 × 1440), QHD+ (3200 × 1800),
+  4K UHD (3840 × 2160), Retina 4K (4096 × 2304) or 5K (5120 × 2880).
+- **Frame rate**: 24, 25, 30, 48, 50 or 60 Hz. 48 Hz is recommended for 5K with
+  HEVC.
+- **Bitrate** (H.264/HEVC only): Automatic, which follows resolution and frame
+  rate (for example 120 Mbit/s for 5K at 48 Hz, 150 Mbit/s at 60 Hz), or a fixed
+  value from 10 to 200 Mbit/s. Not used by the uncompressed and lossless modes.
+- **Video compression**: Automatic, H.264, HEVC, or one of the uncompressed and
+  lossless modes. With Automatic, the setting shows which codec it uses for the
+  chosen resolution and frame rate.
+
+**Parallel connections** is always shown: off with Automatic (H.264 and HEVC
+use one connection), on and greyed out where the compression needs it (the
+10-bit changed-rows modes), and freely selectable otherwise.
+
+The other encoder settings (keyframe spacing, peak-rate cap, capture queue,
+virtual display refresh) follow from resolution and frame rate with the same
+values as the earlier fixed stream profiles. Saved sessions and automation
+names from earlier versions (`native5k`, `smooth1440p60`, `5k60lz4`, …) still
+work; the earlier uncompressed profiles also set their compression.
 
 Each session can select **Automatic**, **H.264**, or **HEVC** before it starts.
 The choice is saved per discovered receiver. Automatic remains the recommended
@@ -38,8 +61,7 @@ option: it checks the receiver capability and the sender hardware encoder at
 the selected resolution. If a requested codec is unavailable, TargetBridge
 uses a compatible hardware fallback and records that choice in the log.
 
-For non-Retina 1080p receivers, use **Full HD** or **Full HD 60**. These
-profiles create a 1920 × 1080 1x virtual display and avoid the double scaling
+For non-Retina 1080p receivers, use **Full HD** at 30 or 60 Hz. It creates a 1920 × 1080 1x virtual display and avoid the double scaling
 that a HiDPI mode would introduce on a 1080p panel.
 
 In a genuinely headless mirror session, where the virtual display is the only

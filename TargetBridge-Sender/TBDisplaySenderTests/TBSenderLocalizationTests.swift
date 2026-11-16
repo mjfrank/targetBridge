@@ -9,8 +9,8 @@ final class TBSenderLocalizationTests: XCTestCase {
                 XCTAssertFalse(title.isEmpty, "\(language): \(preset)")
                 XCTAssertFalse(title.contains("[["), "\(language): \(preset)")
             }
-            XCTAssertEqual(TBDisplayCapturePreset.standard1080p.title(language), "Full HD")
-            XCTAssertEqual(TBDisplayCapturePreset.smooth1080p60.title(language), "Full HD 60")
+            XCTAssertEqual(TBDisplayCapturePreset.standard1080p.title(language), "Full HD 30 Hz")
+            XCTAssertEqual(TBDisplayCapturePreset.native5k.title(language), "5K 48 Hz")
         }
     }
 

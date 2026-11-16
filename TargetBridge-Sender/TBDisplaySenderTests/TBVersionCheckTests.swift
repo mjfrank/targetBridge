@@ -17,29 +17,28 @@ final class TBVersionCheckTests: XCTestCase {
         XCTAssertEqual(TBVersionCheck.mismatch(sender: "4.0", receiver: "4.1"), .senderOlder("4.1"))
     }
 
-    func testUncompressedProfilesChooseTheirCompression() {
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Uncompressed.defaultCodecPreference, .uncompressed)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60UncompressedLZ4.defaultCodecPreference, .uncompressedLZ4)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Enhanced10Bit.defaultCodecPreference, .uncompressedEnhanced)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Full10Bit.defaultCodecPreference, .uncompressedFull10Bit)
-        XCTAssertNil(TBDisplayCapturePreset.native5k60Experimental.defaultCodecPreference)
-        // Uncompressed profiles allow switching between the uncompressed modes only.
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Full10Bit.allowedCodecPreferences,
-                       [.uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM])
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60DPCM.defaultCodecPreference, .losslessDPCM)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Experimental.allowedCodecPreferences,
-                       TBDisplayCodecPreference.allCases)
-        for preset in [TBDisplayCapturePreset.native5k60Uncompressed, .native5k60Full10Bit] {
-            XCTAssertEqual(preset.width, 5120)
-            XCTAssertEqual(preset.height, 2880)
-            XCTAssertEqual(preset.expectedFrameRate, 60)
-        }
+    func testEarlierProfileNamesMapToResolutionFrameRateAndCompression() {
+        let legacy = TBDisplayCapturePreset.legacyProfiles
+        XCTAssertEqual(legacy["native5k60Uncompressed"]?.preset, .native5k60)
+        XCTAssertEqual(legacy["native5k60Uncompressed"]?.codec, .uncompressed)
+        XCTAssertEqual(legacy["native5k60UncompressedLZ4"]?.codec, .uncompressedLZ4)
+        XCTAssertEqual(legacy["native5k60Enhanced10Bit"]?.codec, .uncompressedEnhanced)
+        XCTAssertEqual(legacy["native5k60Full10Bit"]?.codec, .uncompressedFull10Bit)
+        XCTAssertEqual(legacy["native5k60DPCM"]?.codec, .losslessDPCM)
+        XCTAssertNil(legacy["native5k60Experimental"]?.codec)
+        XCTAssertEqual(TBDisplayCapturePreset(rawValue: "native5k"), .native5k)
+        XCTAssertEqual(TBDisplayCapturePreset(rawValue: "smooth1440p60"), .smooth1440p60)
     }
 
-    func testAutomationAcceptsTheNewProfiles() {
-        XCTAssertEqual(TBSenderAutomation.parsePreset("5k60lz4"), .native5k60UncompressedLZ4)
-        XCTAssertEqual(TBSenderAutomation.parsePreset("5k60full10"), .native5k60Full10Bit)
-        XCTAssertEqual(TBSenderAutomation.parsePreset("5k60dpcm"), .native5k60DPCM)
-        XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60Enhanced10Bit"), .native5k60Enhanced10Bit)
+    func testAutomationAcceptsTheEarlierUncompressedNames() {
+        for name in ["5k60lz4", "5k60full10", "5k60dpcm", "native5k60Enhanced10Bit"] {
+            XCTAssertEqual(TBSenderAutomation.parsePreset(name), .native5k60, name)
+        }
+        XCTAssertEqual(TBSenderAutomation.parsePresetCompression("5k60lz4"), .uncompressedLZ4)
+        XCTAssertEqual(TBSenderAutomation.parsePresetCompression("5k60full10"), .uncompressedFull10Bit)
+        XCTAssertEqual(TBSenderAutomation.parsePresetCompression("5k60dpcm"), .losslessDPCM)
+        XCTAssertEqual(TBSenderAutomation.parsePresetCompression("native5k60Enhanced10Bit"), .uncompressedEnhanced)
+        XCTAssertNil(TBSenderAutomation.parsePresetCompression("5k60"))
     }
+
 }

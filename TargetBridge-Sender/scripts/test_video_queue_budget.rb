@@ -3,7 +3,7 @@
 require 'tmpdir'
 root = File.expand_path('..', __dir__)
 source = File.read(File.join(root, 'TBDisplaySender/TBDisplaySenderService.swift'))
-policy = source[/enum TBVideoQueueBudget \{.*?(?=\nenum TBDisplayCapturePreset)/m]
+policy = source[/enum TBVideoQueueBudget \{.*?(?=\nenum TBStreamResolution|\nenum TBDisplayCapturePreset)/m]
 abort 'missing production budget policy' unless policy
 abort 'both capture paths must reserve capacity' unless source.scan('if !TBVideoQueueBudget.canEncode(').size == 2
 capture = source[/func encode\(_ sampleBuffer: CMSampleBuffer\).*?(?=    \/\/\/ CGDisplayStream)/m]

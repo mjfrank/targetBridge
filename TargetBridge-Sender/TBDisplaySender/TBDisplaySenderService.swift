@@ -22,232 +22,193 @@ enum TBVideoQueueBudget {
     }
 }
 
-enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
-    case standard1080p
-    case smooth1080p60
-    case standard1440p
-    case smooth1440p60
-    case smooth1800p60
-    case crisp2160p60
-    case retina4k60
-    case native5k
-    case native5k60Experimental
-    case native5k60Uncompressed
-    case native5k60UncompressedLZ4
-    case native5k60Enhanced10Bit
-    case native5k60Full10Bit
-    case native5k60DPCM
+/// The picture size the Sender streams, named like the displays that have it.
+enum TBStreamResolution: String, CaseIterable, Identifiable, Codable {
+    case fullHD
+    case qhd
+    case qhdPlus
+    case uhd4K
+    case retina4K
+    case retina5K
 
     var id: String { rawValue }
 
-    /// Profiles for the uncompressed modes start with their own video
-    /// compression; the session's own setting applies to all other profiles.
-    var defaultCodecPreference: TBDisplayCodecPreference? {
-        switch self {
-        case .native5k60Uncompressed: return .uncompressed
-        case .native5k60UncompressedLZ4: return .uncompressedLZ4
-        case .native5k60Enhanced10Bit: return .uncompressedEnhanced
-        case .native5k60Full10Bit: return .uncompressedFull10Bit
-        case .native5k60DPCM: return .losslessDPCM
-        default: return nil
-        }
-    }
-
-    /// The video compression options a profile allows. Profiles for the
-    /// uncompressed modes allow switching between those modes only.
-    var allowedCodecPreferences: [TBDisplayCodecPreference] {
-        defaultCodecPreference == nil
-            ? TBDisplayCodecPreference.allCases
-            : TBDisplayCodecPreference.allCases.filter(\.usesRawFrames)
-    }
-
-    var title: String {
-        switch self {
-        case .standard1080p:
-            return "Full HD"
-        case .smooth1080p60:
-            return "Full HD 60"
-        case .standard1440p:
-            return "Standard"
-        case .smooth1440p60:
-            return "Smooth"
-        case .smooth1800p60:
-            return "Smooth+"
-        case .crisp2160p60:
-            return "Crisp"
-        case .retina4k60:
-            return "Retina 4K"
-        case .native5k:
-            return "5K"
-        case .native5k60Experimental:
-            return "5K 60 Experimental"
-        case .native5k60Uncompressed:
-            return "5K 60 Uncompressed (8-bit)"
-        case .native5k60UncompressedLZ4:
-            return "5K 60 LZ4, lossless (8-bit)"
-        case .native5k60Enhanced10Bit:
-            return "5K 60 10-bit dithered"
-        case .native5k60Full10Bit:
-            return "5K 60 Full 10-bit"
-        case .native5k60DPCM:
-            return "5K 60 10-bit lossless (DPCM)"
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .standard1080p:
-            return "1920 × 1080"
-        case .smooth1080p60:
-            return "1920 × 1080 @ 60"
-        case .standard1440p:
-            return "2560 × 1440"
-        case .smooth1440p60:
-            return "2560 × 1440 @ 60"
-        case .smooth1800p60:
-            return "3200 × 1800 @ 60"
-        case .crisp2160p60:
-            return "3840 × 2160 @ 60"
-        case .retina4k60:
-            return "4096 × 2304 @ 60"
-        case .native5k:
-            return "5120 × 2880 @ 48"
-        case .native5k60Experimental:
-            return "5120 × 2880 @ 60"
-        case .native5k60Uncompressed:
-            return "5120 × 2880 @ 60"
-        case .native5k60UncompressedLZ4:
-            return "5120 × 2880 @ 60"
-        case .native5k60Enhanced10Bit:
-            return "5120 × 2880 @ 60"
-        case .native5k60Full10Bit:
-            return "5120 × 2880 @ 60, ~30 for video"
-        case .native5k60DPCM:
-            return "5120 × 2880 @ 60"
-        }
-    }
-
     var width: Int {
         switch self {
-        case .standard1080p, .smooth1080p60:
-            return 1920
-        case .standard1440p, .smooth1440p60:
-            return 2560
-        case .smooth1800p60:
-            return 3200
-        case .crisp2160p60:
-            return 3840
-        case .retina4k60:
-            return 4096
-        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return 5120
+        case .fullHD: return 1920
+        case .qhd: return 2560
+        case .qhdPlus: return 3200
+        case .uhd4K: return 3840
+        case .retina4K: return 4096
+        case .retina5K: return 5120
         }
     }
 
     var height: Int {
         switch self {
-        case .standard1080p, .smooth1080p60:
-            return 1080
-        case .standard1440p, .smooth1440p60:
-            return 1440
-        case .smooth1800p60:
-            return 1800
-        case .crisp2160p60:
-            return 2160
-        case .retina4k60:
-            return 2304
-        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return 2880
+        case .fullHD: return 1080
+        case .qhd: return 1440
+        case .qhdPlus: return 1800
+        case .uhd4K: return 2160
+        case .retina4K: return 2304
+        case .retina5K: return 2880
         }
     }
 
-    var averageBitRate: Int {
+    /// Short name; the same in every language.
+    var name: String {
         switch self {
-        case .standard1080p:
-            return 20_000_000
-        case .smooth1080p60:
-            return 30_000_000
-        case .standard1440p:
-            return 36_000_000
-        case .smooth1440p60:
-            return 52_000_000
-        case .smooth1800p60:
-            return 78_000_000
-        case .crisp2160p60:
-            return 105_000_000
-        case .retina4k60:
-            return 120_000_000
-        case .native5k:
-            return 120_000_000
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return 150_000_000
+        case .fullHD: return "Full HD"
+        case .qhd: return "QHD"
+        case .qhdPlus: return "QHD+"
+        case .uhd4K: return "4K UHD"
+        case .retina4K: return "Retina 4K"
+        case .retina5K: return "5K"
         }
     }
 
-    var codecName: String {
+    var sizeDescription: String { "\(width) × \(height)" }
+
+    /// Automatic H.264/HEVC bitrate at 60 Hz (Mbit/s), from the earlier stream
+    /// profiles; lower frame rates scale it down (`TBDisplayCapturePreset`).
+    var bitRateAt60Mbps: Int {
         switch self {
-        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
-            return "H.264"
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental:
-            return "HEVC"
-        case .native5k60Uncompressed:
-            return "Uncompressed 8-bit"
-        case .native5k60UncompressedLZ4:
-            return "LZ4 8-bit"
-        case .native5k60Enhanced10Bit:
-            return "10-bit dithered"
-        case .native5k60Full10Bit:
-            return "Full 10-bit"
-        case .native5k60DPCM:
-            return "DPCM 10-bit"
+        case .fullHD: return 30
+        case .qhd: return 52
+        case .qhdPlus: return 78
+        case .uhd4K: return 105
+        case .retina4K: return 120
+        case .retina5K: return 150
+        }
+    }
+}
+
+/// What the Sender streams: resolution, frame rate and (optionally) a fixed
+/// H.264/HEVC bitrate. Every technical setting derives from these by the rules
+/// below, which reproduce the earlier fixed stream profiles (Full HD, Smooth,
+/// 5K, 5K 60 …) for their resolution and frame rate.
+struct TBDisplayCapturePreset: Equatable, Hashable {
+    var resolution: TBStreamResolution
+    /// One of `TBDisplayCapturePreset.frameRates`.
+    var frameRate: Int
+    /// Fixed H.264/HEVC bitrate in Mbit/s; nil = automatic.
+    var bitRateMbps: Int?
+
+    init(resolution: TBStreamResolution, frameRate: Int, bitRateMbps: Int? = nil) {
+        self.resolution = resolution
+        self.frameRate = Self.frameRates.contains(frameRate) ? frameRate : 60
+        self.bitRateMbps = bitRateMbps.flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    /// Selectable frame rates. 24/48 suit film, 25/50 PAL video, 30/60 the
+    /// desktop; 48 is the recommended rate for 5K with HEVC.
+    static let frameRates = [24, 25, 30, 48, 50, 60]
+    /// Selectable fixed bitrates for H.264/HEVC (Mbit/s).
+    static let bitRatesMbps = [10, 20, 30, 50, 80, 100, 120, 150, 200]
+
+    // The earlier fixed stream profiles, as resolution and frame rate.
+    static let standard1080p = Self(resolution: .fullHD, frameRate: 30)
+    static let smooth1080p60 = Self(resolution: .fullHD, frameRate: 60)
+    static let standard1440p = Self(resolution: .qhd, frameRate: 30)
+    static let smooth1440p60 = Self(resolution: .qhd, frameRate: 60)
+    static let smooth1800p60 = Self(resolution: .qhdPlus, frameRate: 60)
+    static let crisp2160p60 = Self(resolution: .uhd4K, frameRate: 60)
+    static let retina4k60 = Self(resolution: .retina4K, frameRate: 60)
+    static let native5k = Self(resolution: .retina5K, frameRate: 48)
+    static let native5k60 = Self(resolution: .retina5K, frameRate: 60)
+
+    /// Every resolution and frame rate.
+    static var allCases: [Self] {
+        TBStreamResolution.allCases.flatMap { resolution in
+            frameRates.map { Self(resolution: resolution, frameRate: $0) }
         }
     }
 
+    /// Earlier profile names (saved sessions, automation): resolution and frame
+    /// rate, plus the compression the uncompressed profiles stood for.
+    static let legacyProfiles: [String: (preset: TBDisplayCapturePreset, codec: TBDisplayCodecPreference?)] = [
+        "standard1080p": (standard1080p, nil),
+        "smooth1080p60": (smooth1080p60, nil),
+        "standard1440p": (standard1440p, nil),
+        "smooth1440p60": (smooth1440p60, nil),
+        "smooth1800p60": (smooth1800p60, nil),
+        "crisp2160p60": (crisp2160p60, nil),
+        "retina4k60": (retina4k60, nil),
+        "native5k": (native5k, nil),
+        "native5k60Experimental": (native5k60, nil),
+        "native5k60Uncompressed": (native5k60, .uncompressed),
+        "native5k60UncompressedLZ4": (native5k60, .uncompressedLZ4),
+        "native5k60Enhanced10Bit": (native5k60, .uncompressedEnhanced),
+        "native5k60Full10Bit": (native5k60, .uncompressedFull10Bit),
+        "native5k60DPCM": (native5k60, .losslessDPCM)
+    ]
+
+    /// "retina5K@48", with "/<Mbit/s>" for a fixed bitrate.
+    var rawValue: String {
+        "\(resolution.rawValue)@\(frameRate)" + (bitRateMbps.map { "/\($0)" } ?? "")
+    }
+
+    /// Reads `rawValue`, or an earlier profile name.
+    init?(rawValue: String) {
+        if let legacy = Self.legacyProfiles[rawValue] {
+            self = legacy.preset
+            return
+        }
+        let parts = rawValue.split(separator: "@", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let resolution = TBStreamResolution(rawValue: parts[0]) else { return nil }
+        let rateParts = parts[1].split(separator: "/", maxSplits: 1).map(String.init)
+        guard let frameRate = Int(rateParts[0]), Self.frameRates.contains(frameRate) else { return nil }
+        let bitRate = rateParts.count == 2 ? Int(rateParts[1]) : nil
+        self.init(resolution: resolution, frameRate: frameRate, bitRateMbps: bitRate)
+    }
+
+    var width: Int { resolution.width }
+    var height: Int { resolution.height }
+
+    /// "5K 48 Hz"; the same in every language.
+    var title: String { "\(resolution.name) \(frameRate) Hz" }
+
+    /// "5120 × 2880 @ 48"
+    var description: String { "\(resolution.sizeDescription) @ \(frameRate)" }
+
+    /// High-frame-rate 5K: the setting that needs the tuned encoder below.
+    private var isHighRate5K: Bool { resolution == .retina5K && frameRate >= 50 }
+
+    /// Automatic bitrate: the earlier profiles' 60 Hz value, scaled down for
+    /// lower frame rates (Full HD 30 = 20, QHD 30 = 35, 5K 48 = 120 Mbit/s).
+    var automaticBitRateMbps: Int {
+        let factor: Double
+        switch frameRate {
+        case 50...: factor = frameRate == 60 ? 1.0 : 0.9
+        case 48: factor = 0.8
+        case 30: factor = 0.68
+        default: factor = 0.6
+        }
+        return max(1, Int((Double(resolution.bitRateAt60Mbps) * factor).rounded()))
+    }
+
+    var effectiveBitRateMbps: Int { bitRateMbps ?? automaticBitRateMbps }
+
+    var averageBitRate: Int { effectiveBitRateMbps * 1_000_000 }
+
+    /// H.264 up to QHD+, HEVC from 4K on.
     var codecType: CMVideoCodecType {
-        switch self {
-        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
-            return kCMVideoCodecType_H264
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return kCMVideoCodecType_HEVC
-        }
+        width >= 3840 ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264
     }
+
+    var codecName: String { codecType == kCMVideoCodecType_HEVC ? "HEVC" : "H.264" }
 
     var queueDepth: Int {
         if let envVal = ProcessInfo.processInfo.environment["QD"], let parsed = Int(envVal) {
             return parsed
         }
-        switch self {
-        case .standard1080p, .standard1440p:
-            return 3
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            // Five surfaces protect WindowServer from starvation during
-            // high-frame-rate 4K capture while the serial pipeline prevents an
-            // application-side frame backlog.
-            return 5
-        }
+        // Five surfaces protect WindowServer from starvation during
+        // high-frame-rate 4K capture while the serial pipeline prevents an
+        // application-side frame backlog.
+        return frameRate > 30 ? 5 : 3
     }
 
-    var expectedFrameRate: Int {
-        switch self {
-        case .standard1080p:
-            return 30
-        case .smooth1080p60:
-            return 60
-        case .standard1440p:
-            return 30
-        case .smooth1440p60:
-            return 60
-        case .smooth1800p60:
-            return 60
-        case .crisp2160p60, .retina4k60:
-            return 60
-        case .native5k:
-            return 48
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return 60
-        }
-    }
+    var expectedFrameRate: Int { frameRate }
 
     /// ScreenCaptureKit treats `minimumFrameInterval` as a throttle rather than
     /// a target cadence. Requesting headroom avoids losing refreshes to scheduler
@@ -256,50 +217,19 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         expectedFrameRate >= 48 ? expectedFrameRate * 2 : expectedFrameRate
     }
 
-    var maxKeyFrameInterval: Int {
-        switch self {
-        case .standard1080p, .smooth1080p60:
-            return 60
-        case .standard1440p:
-            return 60
-        case .smooth1440p60:
-            return 60
-        case .smooth1800p60:
-            return 60
-        case .crisp2160p60, .retina4k60:
-            return 60
-        case .native5k:
-            return 48
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            // See maxKeyFrameIntervalDuration. The uncompressed profiles use
-            // the encoder only when an older Receiver makes them fall back.
-            return 240
-        }
-    }
+    /// A keyframe every 2 s up to 30 Hz, every second above. High-rate 5K: one
+    /// every 4 s (see maxKeyFrameIntervalDuration).
+    var maxKeyFrameInterval: Int { frameRate * maxKeyFrameIntervalDuration }
 
     var maxKeyFrameIntervalDuration: Int {
-        switch self {
-        case .standard1080p:
-            return 2
-        case .smooth1080p60:
-            return 1
-        case .standard1440p:
-            return 2
-        case .smooth1440p60:
-            return 1
-        case .smooth1800p60, .crisp2160p60, .retina4k60:
-            return 1
-        case .native5k:
-            return 1
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            // A 5K IDR is several times the size of a P-frame and costs the
-            // receiver several frame budgets to transfer, decode and upload.
-            // One per second produced a regular once-a-second hitch at 60 fps.
-            // The link is reliable TCP and the sender never drops a frame
-            // after encoding, so periodic IDRs only bound recovery time;
-            // every new session still starts on an IDR.
-            return 4
-        }
+        // A 5K IDR is several times the size of a P-frame and costs the
+        // receiver several frame budgets to transfer, decode and upload.
+        // One per second produced a regular once-a-second hitch at 60 fps.
+        // The link is reliable TCP and the sender never drops a frame
+        // after encoding, so periodic IDRs only bound recovery time;
+        // every new session still starts on an IDR.
+        if isHighRate5K { return 4 }
+        return frameRate > 30 ? 1 : 2
     }
 
     /// Optional hard ceiling on the encoder's output rate, applied through
@@ -309,23 +239,10 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     /// 5K60 pushes receiver decode past its frame budget exactly when the
     /// picture is busiest.
     var peakBitRate: Int? {
-        switch self {
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return averageBitRate * 3 / 2
-        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60,
-             .crisp2160p60, .retina4k60, .native5k:
-            return nil
-        }
+        isHighRate5K ? averageBitRate * 3 / 2 : nil
     }
 
-    var prioritizeSpeed: Bool {
-        switch self {
-        case .standard1080p, .standard1440p:
-            return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return true
-        }
-    }
+    var prioritizeSpeed: Bool { frameRate > 30 }
 
     var maxPendingVideoPackets: Int {
         if let envVal = ProcessInfo.processInfo.environment["MPVP"], let parsed = Int(envVal) {
@@ -334,23 +251,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         return 3
     }
 
-    var maxFrameDelayCount: Int {
-        switch self {
-        case .standard1080p, .standard1440p:
-            return 1
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return 0
-        }
-    }
+    var maxFrameDelayCount: Int { frameRate > 30 ? 0 : 1 }
 
-    var dropsBeforeEncodeWhenBacklogged: Bool {
-        switch self {
-        case .standard1080p, .standard1440p:
-            return false
-        case .smooth1080p60, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return true
-        }
-    }
+    var dropsBeforeEncodeWhenBacklogged: Bool { frameRate > 30 }
 
     var maxInFlightEncodeFrames: Int {
         if let envVal = ProcessInfo.processInfo.environment["MIFEF"], let parsed = Int(envVal) {
@@ -360,28 +263,16 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
     }
 
     var captureResolution: SCCaptureResolutionType {
-        switch self {
-        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60:
-            return .nominal
-        case .crisp2160p60, .retina4k60, .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return .best
-        }
+        width >= 3840 ? .best : .nominal
     }
 
+    /// The virtual display refreshes at a multiple of the stream: 48 Hz for
+    /// 24/48, 50 Hz for 25/50, otherwise 60 Hz.
     var virtualDisplayRefreshRate: Double {
-        switch self {
-        case .standard1080p, .smooth1080p60:
-            return 60
-        case .standard1440p:
-            return 60
-        case .smooth1440p60, .smooth1800p60:
-            return 60
-        case .crisp2160p60, .retina4k60:
-            return 60
-        case .native5k:
-            return 48
-        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return 60
+        switch frameRate {
+        case 24, 48: return 48
+        case 25, 50: return 50
+        default: return 60
         }
     }
 
@@ -408,24 +299,16 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         TBVirtualDisplayModeSize(width: width, height: height, isHiDPI: false)
     }
 
-    /// True for profiles that target a receiver panel of exactly this resolution,
-    /// with no extra pixels for a HiDPI backing store.
+    /// True for Full HD, which targets a receiver panel of exactly this
+    /// resolution, with no extra pixels for a HiDPI backing store.
     ///
     /// The receiver advertises a fixed 5120x2880 panel and a 2560x1440 HiDPI mode
     /// no matter what it is actually plugged into, so its profile cannot be used to
-    /// detect a non-Retina panel; the capture profile is the signal instead. A
-    /// 21.5-inch non-Retina iMac running the 1080p profiles wants a 1920x1080 1x
-    /// desktop: HiDPI would render the desktop at 960x540 and draw every control at
-    /// 2x, and the receiver's own 1440p default would rescale twice on the way out.
-    var rendersAtNativeScale: Bool {
-        switch self {
-        case .standard1080p, .smooth1080p60:
-            return true
-        case .standard1440p, .smooth1440p60, .smooth1800p60, .crisp2160p60, .retina4k60,
-             .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit, .native5k60DPCM:
-            return false
-        }
-    }
+    /// detect a non-Retina panel; the stream resolution is the signal instead. A
+    /// 21.5-inch non-Retina iMac at Full HD wants a 1920x1080 1x desktop: HiDPI
+    /// would render the desktop at 960x540 and draw every control at 2x, and the
+    /// receiver's own 1440p default would rescale twice on the way out.
+    var rendersAtNativeScale: Bool { resolution == .fullHD }
 }
 
 /// A zero-buffer frame-rate ceiling for capture callbacks. Deadlines advance on
@@ -1913,15 +1796,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// downsample and the GPU cost of rendering pixels that get thrown away.
     @Published var matchRenderToStream: Bool = false
 
+    /// Resolution, frame rate and bitrate of the stream.
     @Published var capturePreset: TBDisplayCapturePreset = .standard1440p {
         didSet {
-            if capturePreset != oldValue {
-                profileCodecPreference = nil
-                // The 10-bit profiles depend on parallel connections.
-                if capturePreset.defaultCodecPreference?.needsParallelStreams == true {
-                    parallelStreams = true
-                }
-            }
             if !isStreaming {
                 streamResolutionText = TBDisplaySenderL10n.streamSummary(preset: capturePreset, source: captureSource, language: language)
             }
@@ -1931,22 +1808,41 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// download button until the next connection.
     @Published var versionNotice: String?
 
-    /// The compression actually used. A profile for an uncompressed mode uses
-    /// its own mode unless another uncompressed mode was picked for it.
-    var effectiveCodecPreference: TBDisplayCodecPreference {
-        guard let profileDefault = capturePreset.defaultCodecPreference else { return codecPreference }
-        if let chosen = profileCodecPreference, capturePreset.allowedCodecPreferences.contains(chosen) {
-            return chosen
-        }
-        return profileDefault
+    /// The compression actually used (the session's choice).
+    var effectiveCodecPreference: TBDisplayCodecPreference { codecPreference }
+
+    /// What Automatic picks for this resolution and frame rate, with the
+    /// Receiver's last known HEVC support: H.264 or HEVC.
+    var automaticCodecName: String {
+        let decision = Self.chooseCodec(
+            preference: .automatic,
+            preset: capturePreset,
+            receiverSupportsHEVC: receiverSupportsHEVCDecodeHint ?? true,
+            senderSupportsH264: Self.probeHardwareEncoderSupport(
+                codecType: kCMVideoCodecType_H264, width: capturePreset.width, height: capturePreset.height),
+            senderSupportsHEVC: Self.probeHardwareEncoderSupport(
+                codecType: kCMVideoCodecType_HEVC, width: capturePreset.width, height: capturePreset.height),
+            receiverSupportsHEVCSoftware: receiverSupportsHEVCSoftwareDecodeHint ?? false
+        )
+        guard let decision else { return capturePreset.codecName }
+        return decision.codecType == kCMVideoCodecType_HEVC ? "HEVC" : "H.264"
     }
 
-    /// The uncompressed mode picked within an uncompressed-mode profile; nil
-    /// uses the profile's own mode. Reset when the profile changes.
-    @Published var profileCodecPreference: TBDisplayCodecPreference?
-
-    /// Uncompressed modes: spread each frame over up to 4 extra connections.
+    /// The setting as chosen; see `effectiveParallelStreams` for what applies.
     @Published var parallelStreams: Bool = true
+
+    /// Parallel connections in use: always for the 10-bit changed-rows modes
+    /// (they need them), never with Automatic (H.264/HEVC use one
+    /// connection), otherwise as chosen.
+    var effectiveParallelStreams: Bool {
+        Self.effectiveParallelStreams(chosen: parallelStreams, compression: codecPreference)
+    }
+
+    static func effectiveParallelStreams(chosen: Bool, compression: TBDisplayCodecPreference) -> Bool {
+        if compression.needsParallelStreams { return true }
+        if compression == .automatic { return false }
+        return chosen
+    }
     /// Colour space of the virtual display and video (experimental).
     @Published var colorSpacePreference: TBVideoColorSpacePreference = .automatic
     /// What the running session uses; nil while not streaming or when the
@@ -3548,7 +3444,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     || rowsPreference == .uncompressedFull10Bit)
                 ? TBTenBitConverter() : nil
             let capturesTenBit = sendsDPCM || sendsRawRGB10 || tenBitConverter != nil
-            let dataStreams = usesRawRegions && rowsPreference.usesParallelStreams && parallelStreams
+            let dataStreams = usesRawRegions && rowsPreference.usesParallelStreams && effectiveParallelStreams
                 ? await openDataStreams(for: profile)
                 : []
             let codecName: String
@@ -4646,7 +4542,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 guard isStreaming, !sessionAckSent else { return }
                 let sentFrames = self.pipeline?.sentFramesSnapshot ?? 0
                 TBLog.connection.error("capture: first-frame timeout preset=\(self.capturePreset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) connected=\(self.isConnected, privacy: .public) sentFrames=\(sentFrames, privacy: .public)")
-                if self.capturePreset == .retina4k60 || self.capturePreset == .native5k || self.capturePreset == .native5k60Experimental {
+                if self.capturePreset.width >= 4096 && self.capturePreset.codecType == kCMVideoCodecType_HEVC {
                     setStatus(.hevcNoFrames)
                 } else {
                     setStatus(.noFirstFrame)

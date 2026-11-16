@@ -72,15 +72,10 @@ final class TBDPCMTests: XCTestCase {
         XCTAssertEqual(Array(blob.prefix(4)), Array("TBD2".utf8))
     }
 
-    func testDPCMIsAnUncompressedFamilyModeWithItsOwnProfile() {
+    func testDPCMIsAnUncompressedFamilyMode() {
         XCTAssertTrue(TBDisplayCodecPreference.losslessDPCM.usesRawFrames)
         XCTAssertTrue(TBDisplayCodecPreference.losslessDPCM.compressesRawFrames)
         XCTAssertFalse(TBDisplayCodecPreference.losslessDPCM.needsParallelStreams)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60DPCM.defaultCodecPreference, .losslessDPCM)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60DPCM.width, 5120)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60DPCM.height, 2880)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60DPCM.expectedFrameRate, 60)
-        XCTAssertTrue(TBDisplayCapturePreset.native5k60Full10Bit.allowedCodecPreferences.contains(.losslessDPCM))
     }
 
     func testReceiverCapabilitiesDecode() throws {
@@ -97,6 +92,6 @@ final class TBDPCMTests: XCTestCase {
                        "Lossless 10-bit · full frames (DPCM, experimental)")
         XCTAssertEqual(TBDisplaySenderL10n.codecPreferenceTitle(.uncompressedFull10Bit, language: .english),
                        "Lossless 10-bit · changed rows (LZ4, experimental)")
-        XCTAssertEqual(TBSenderAutomation.parsePreset("5k60dpcm"), .native5k60DPCM)
+        XCTAssertEqual(TBSenderAutomation.parsePresetCompression("5k60dpcm"), .losslessDPCM)
     }
 }

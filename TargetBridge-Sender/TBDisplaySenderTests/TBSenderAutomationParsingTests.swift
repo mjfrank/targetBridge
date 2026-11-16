@@ -151,7 +151,7 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(TBDisplayCapturePreset.standard1440p.queueDepth, 3)
         XCTAssertEqual(TBDisplayCapturePreset.smooth1440p60.queueDepth, 5)
         XCTAssertEqual(TBDisplayCapturePreset.retina4k60.queueDepth, 5)
-        XCTAssertEqual(TBDisplayCapturePreset.native5k60Experimental.queueDepth, 5)
+        XCTAssertEqual(TBDisplayCapturePreset.native5k60.queueDepth, 5)
     }
 
     func testHighFrameRatePresetsRequestCaptureHeadroom() {
@@ -417,7 +417,7 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(TBSenderAutomation.parsePreset("crisp2160p60"), .crisp2160p60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("retina4k60"), .retina4k60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("native5k"), .native5k)
-        XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60Experimental"), .native5k60Experimental)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60Experimental"), .native5k60)
     }
 
     func testParsePresetAliases() {
@@ -432,8 +432,8 @@ final class TBSenderAutomationParsingTests: XCTestCase {
         XCTAssertEqual(TBSenderAutomation.parsePreset("RETINA4K60"), .retina4k60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("4096x2304"), .retina4k60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("imac4k"), .retina4k60)
-        XCTAssertEqual(TBSenderAutomation.parsePreset("5k60"), .native5k60Experimental)
-        XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60"), .native5k60Experimental)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("5k60"), .native5k60)
+        XCTAssertEqual(TBSenderAutomation.parsePreset("native5k60"), .native5k60)
         XCTAssertEqual(TBSenderAutomation.parsePreset("5k"), .native5k)
         XCTAssertEqual(TBSenderAutomation.parsePreset("5K"), .native5k, "aliases are case-insensitive")
         XCTAssertEqual(TBSenderAutomation.parsePreset("native"), .native5k)
@@ -448,7 +448,7 @@ final class TBSenderAutomationParsingTests: XCTestCase {
     }
 
     func testExperimental5K60UsesIndependent60FPSHEVCSettings() {
-        let preset = TBDisplayCapturePreset.native5k60Experimental
+        let preset = TBDisplayCapturePreset.native5k60
 
         XCTAssertEqual(preset.width, 5120)
         XCTAssertEqual(preset.height, 2880)
@@ -459,7 +459,7 @@ final class TBSenderAutomationParsingTests: XCTestCase {
     }
 
     func test5K60SpacesKeyframesAndCapsPeakRate() {
-        let preset = TBDisplayCapturePreset.native5k60Experimental
+        let preset = TBDisplayCapturePreset.native5k60
 
         XCTAssertEqual(preset.maxKeyFrameIntervalDuration, 4)
         XCTAssertEqual(preset.maxKeyFrameInterval, 240)

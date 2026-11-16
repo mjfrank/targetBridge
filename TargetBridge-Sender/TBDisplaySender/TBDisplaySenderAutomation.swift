@@ -264,7 +264,11 @@ enum TBSenderAutomation {
             else { NSLog("[automation] unknown mode '\(mode)' (ignored)") }
         }
         if let presetName = params["preset"] {
-            if let preset = parsePreset(presetName) { session.capturePreset = preset }
+            if let preset = parsePreset(presetName) {
+                session.capturePreset = preset
+                // The earlier uncompressed profile names also pick the compression.
+                if let codec = parsePresetCompression(presetName) { session.codecPreference = codec }
+            }
             else { NSLog("[automation] unknown preset '\(presetName)' (ignored)") }
         }
 
@@ -531,6 +535,19 @@ enum TBSenderAutomation {
         }
     }
 
+    /// The compression an earlier uncompressed profile name stands for.
+    static func parsePresetCompression(_ value: String) -> TBDisplayCodecPreference? {
+        if let legacy = TBDisplayCapturePreset.legacyProfiles[value] { return legacy.codec }
+        switch value.lowercased() {
+        case "5k60raw", "5k60uncompressed": return .uncompressed
+        case "5k60lz4": return .uncompressedLZ4
+        case "5k60dither", "5k6010bit": return .uncompressedEnhanced
+        case "5k60full10", "5k60full10bit": return .uncompressedFull10Bit
+        case "5k60dpcm": return .losslessDPCM
+        default: return nil
+        }
+    }
+
     static func parsePreset(_ value: String) -> TBDisplayCapturePreset? {
         if let preset = TBDisplayCapturePreset(rawValue: value) { return preset }
         switch value.lowercased() {
@@ -541,12 +558,9 @@ enum TBSenderAutomation {
         case "1800p", "1800p60", "smooth1800": return .smooth1800p60
         case "2160p", "2160p60", "4k", "crisp": return .crisp2160p60
         case "retina4k", "retina4k60", "4096x2304", "imac4k": return .retina4k60
-        case "5k60", "native5k60": return .native5k60Experimental
-        case "5k60raw", "5k60uncompressed": return .native5k60Uncompressed
-        case "5k60lz4": return .native5k60UncompressedLZ4
-        case "5k60dither", "5k6010bit": return .native5k60Enhanced10Bit
-        case "5k60full10", "5k60full10bit": return .native5k60Full10Bit
-        case "5k60dpcm": return .native5k60DPCM
+        case "5k60", "native5k60", "5k60raw", "5k60uncompressed", "5k60lz4", "5k60dither", "5k6010bit",
+             "5k60full10", "5k60full10bit", "5k60dpcm":
+            return .native5k60
         case "5k", "native", "5120x2880": return .native5k
         default: return nil
         }

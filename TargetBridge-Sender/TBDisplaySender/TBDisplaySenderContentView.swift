@@ -712,39 +712,53 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    settingRow(TBDisplaySenderL10n.streamProfile(service.language), details: streamProfileDetails) {
-                        Picker(TBDisplaySenderL10n.streamProfile(service.language), selection: $session.capturePreset) {
-                            ForEach(TBDisplayCapturePreset.allCases, id: \.self) { preset in
-                                Text("\(preset.title(service.language)) · \(preset.description)").tag(preset)
+                    settingRow(TBDisplaySenderL10n.text("sender.stream.resolution", service.language), details: streamProfileDetails) {
+                        Picker(TBDisplaySenderL10n.text("sender.stream.resolution", service.language),
+                               selection: Binding(
+                                   get: { session.capturePreset.resolution },
+                                   set: { session.capturePreset.resolution = $0 }
+                               )) {
+                            ForEach(TBStreamResolution.allCases) { resolution in
+                                Text("\(resolution.name) · \(resolution.sizeDescription)").tag(resolution)
                             }
                         }
                         .pickerStyle(.menu)
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    // Profiles for the uncompressed modes start with their own mode
-                    // and allow switching between the uncompressed modes only.
+                    settingRow(TBDisplaySenderL10n.text("sender.stream.frame_rate", service.language),
+                               details: TBDisplaySenderL10n.text("sender.stream.frame_rate_hint", service.language)) {
+                        Picker(TBDisplaySenderL10n.text("sender.stream.frame_rate", service.language),
+                               selection: Binding(
+                                   get: { session.capturePreset.frameRate },
+                                   set: { session.capturePreset.frameRate = $0 }
+                               )) {
+                            ForEach(TBDisplayCapturePreset.frameRates, id: \.self) { rate in
+                                Text("\(rate) Hz").tag(rate)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(session.isConnected || session.isStreaming)
+                    }
+
                     settingRow(
                         TBDisplaySenderL10n.videoCompression(service.language),
-                        details: session.capturePreset.defaultCodecPreference == nil
-                            ? TBDisplaySenderL10n.codecPreferenceHint(
-                                session.codecPreference,
-                                language: service.language
-                            )
-                            : TBDisplaySenderL10n.codecSetByProfile(service.language) + " "
-                                + TBDisplaySenderL10n.codecPreferenceHint(
-                                    session.effectiveCodecPreference,
-                                    language: service.language
-                                )
+                        details: session.codecPreference == .automatic
+                            ? TBDisplaySenderL10n.text("sender.codec.automatic_uses", service.language, [
+                                "codec": session.automaticCodecName,
+                                "resolution": session.capturePreset.resolution.name,
+                                "rate": "\(session.capturePreset.frameRate)"
+                            ])
+                            : TBDisplaySenderL10n.codecPreferenceHint(session.codecPreference, language: service.language)
                     ) {
                         Picker(
                             TBDisplaySenderL10n.videoCompression(service.language),
                             selection: Binding(
-                                get: { session.effectiveCodecPreference },
+                                get: { session.codecPreference },
                                 set: { service.setCodecPreference($0, for: session) }
                             )
                         ) {
-                            ForEach(session.capturePreset.allowedCodecPreferences) { preference in
+                            ForEach(TBDisplayCodecPreference.allCases) { preference in
                                 Text(TBDisplaySenderL10n.codecPreferenceTitle(
                                     preference,
                                     language: service.language
@@ -756,15 +770,48 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    if session.effectiveCodecPreference.usesParallelStreams {
-                        settingRow(
-                            TBDisplaySenderL10n.parallelStreams(service.language),
-                            details: TBDisplaySenderL10n.parallelStreamsHint(service.language)
-                        ) {
-                            Toggle("", isOn: $session.parallelStreams)
-                                .labelsHidden()
-                                .disabled(session.isConnected || session.isStreaming)
+                    // Bitrate applies to H.264/HEVC; the uncompressed and lossless
+                    // modes send what the picture needs.
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.stream.bitrate", service.language),
+                        details: TBDisplaySenderL10n.text(
+                            session.codecPreference.usesRawFrames ? "sender.stream.bitrate_raw_hint" : "sender.stream.bitrate_hint",
+                            service.language)
+                    ) {
+                        Picker(TBDisplaySenderL10n.text("sender.stream.bitrate", service.language),
+                               selection: Binding(
+                                   get: { session.capturePreset.bitRateMbps ?? 0 },
+                                   set: { session.capturePreset.bitRateMbps = $0 > 0 ? $0 : nil }
+                               )) {
+                            Text(TBDisplaySenderL10n.text("sender.stream.bitrate_automatic", service.language,
+                                                          ["value": "\(session.capturePreset.automaticBitRateMbps)"]))
+                                .tag(0)
+                            ForEach(TBDisplayCapturePreset.bitRatesMbps, id: \.self) { rate in
+                                Text("\(rate) Mbit/s").tag(rate)
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .disabled(session.isConnected || session.isStreaming || session.codecPreference.usesRawFrames)
+                    }
+
+                    // Always shown. Off with Automatic (H.264/HEVC use one connection),
+                    // on and greyed out where the mode needs it.
+                    settingRow(
+                        TBDisplaySenderL10n.parallelStreams(service.language),
+                        details: session.codecPreference.needsParallelStreams
+                            ? TBDisplaySenderL10n.text("sender.parallel_streams.required", service.language)
+                            : session.codecPreference == .automatic
+                                ? TBDisplaySenderL10n.text("sender.parallel_streams.automatic", service.language)
+                                : TBDisplaySenderL10n.parallelStreamsHint(service.language)
+                    ) {
+                        Toggle("", isOn: Binding(
+                            get: { session.effectiveParallelStreams },
+                            set: { session.parallelStreams = $0 }
+                        ))
+                        .labelsHidden()
+                        .disabled(session.isConnected || session.isStreaming
+                                  || session.codecPreference == .automatic
+                                  || session.codecPreference.needsParallelStreams)
                     }
 
                     settingRow(

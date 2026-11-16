@@ -431,6 +431,8 @@ final class TBDisplaySenderService: ObservableObject {
         var inputBindings: [TBInputBinding]?
         var matchRenderToStream: Bool?
         var codecPreference: String?
+        /// Read only: the compression picked within one of the earlier
+        /// uncompressed stream profiles (now the session's compression).
         var profileCodecPreference: String?
         var parallelStreams: Bool?
         var keepAlive: Bool?
@@ -476,7 +478,7 @@ final class TBDisplaySenderService: ObservableObject {
                 inputBindings: session.inputBindings,
                 matchRenderToStream: session.matchRenderToStream,
                 codecPreference: session.codecPreference.rawValue,
-                profileCodecPreference: session.profileCodecPreference?.rawValue,
+                profileCodecPreference: nil,
                 parallelStreams: session.parallelStreams,
                 keepAlive: session.keepAlive,
                 colorSpace: session.colorSpacePreference.rawValue
@@ -577,8 +579,14 @@ final class TBDisplaySenderService: ObservableObject {
         session.codecPreference = config.codecPreference
             .flatMap(TBDisplayCodecPreference.init(rawValue:))
             ?? .automatic
-        session.profileCodecPreference = config.profileCodecPreference
-            .flatMap(TBDisplayCodecPreference.init(rawValue:))
+        // Earlier uncompressed stream profiles (e.g. "5K 60 LZ4") chose the
+        // compression themselves; that becomes the session's compression.
+        if let legacy = TBDisplayCapturePreset.legacyProfiles[config.capturePreset],
+           let profileCodec = legacy.codec {
+            session.codecPreference = config.profileCodecPreference
+                .flatMap(TBDisplayCodecPreference.init(rawValue:))
+                ?? profileCodec
+        }
         session.parallelStreams = config.parallelStreams ?? true
         session.keepAlive = config.keepAlive ?? false
         session.colorSpacePreference = config.colorSpace
@@ -645,14 +653,6 @@ final class TBDisplaySenderService: ObservableObject {
 
     func setCodecPreference(_ preference: TBDisplayCodecPreference, for session: TBDisplaySenderSession) {
         guard !session.isConnected, !session.isStreaming else { return }
-        // Within an uncompressed-mode profile the choice belongs to the
-        // profile, not to the receiver's general setting.
-        if session.capturePreset.defaultCodecPreference != nil {
-            guard session.capturePreset.allowedCodecPreferences.contains(preference) else { return }
-            session.profileCodecPreference = preference
-            if preference.needsParallelStreams { session.parallelStreams = true }
-            return
-        }
         session.codecPreference = preference
         if preference.needsParallelStreams { session.parallelStreams = true }
         guard let key = receiverCodecPreferenceKey(for: session) else { return }
