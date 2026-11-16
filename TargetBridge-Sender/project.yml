@@ -19,7 +19,9 @@ targets:
       - path: ../TargetBridge-Shared
         excludes:
           - "**/*.md"
+          - "scripts/**"
       - path: TargetBridgeSupport/Assets.xcassets
+      - path: TargetBridgeSupport/Localizations
     settings:
       base:
         PRODUCT_NAME: "TargetBridge"
@@ -28,7 +30,7 @@ targets:
         # live in TargetBridgeSupport/Info.plist (Xcode drops INFOPLIST_KEY_* usage strings once
         # INFOPLIST_FILE is set; the file is the single source of truth for those + the URL scheme).
         MARKETING_VERSION: "4.0"
-        CURRENT_PROJECT_VERSION: "20261106141442"
+        CURRENT_PROJECT_VERSION: "20261115000349"
         SWIFT_VERSION: "6.0"
         ENABLE_HARDENED_RUNTIME: NO
         SWIFT_STRICT_CONCURRENCY: minimal
@@ -41,7 +43,8 @@ targets:
       - name: Stamp Sender Build Info
         script: |
           set -euo pipefail
-          STAMP="${TB_SENDER_BUILD:-$(date +%Y%m%d%H%M%S)}"
+          # Use the same resolved build setting as CFBundleVersion.
+          STAMP="${CURRENT_PROJECT_VERSION}"
           cat > "${SRCROOT}/TBDisplaySender/TBDisplaySenderBuildInfo.swift" <<EOI
           enum TBDisplaySenderBuildInfo {
               static let marketingVersion = "4.0"

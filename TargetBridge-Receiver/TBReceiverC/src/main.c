@@ -17,6 +17,7 @@
 #include "decoder.h"
 #include "display.h"
 #include "idle_watchdog.h"
+#include "connection_log.h"
 #include "receiver_profile.h"
 #include "raw_regions.h"
 #include "version_check.h"
@@ -33,6 +34,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreAudio/CoreAudio.h>
+#include <CoreVideo/CoreVideo.h>
 
 /* kAudioObjectPropertyElementMain is the macOS 12+ SDK spelling; older SDKs
  * only define kAudioObjectPropertyElementMaster (both are numerically 0). */
@@ -90,6 +92,17 @@ struct app {
     struct tb_decoder *dec;
     struct tb_parser   parser;
 
+    /* Newest decoded VideoToolbox frame not yet presented (retained).
+     * Every frame is decoded so the reference chain stays intact, but only
+     * the newest is uploaded and presented. When the receiver falls behind
+     * (a keyframe burst, a slow present) it skips stale frames and catches
+     * up instead of rendering a backlog one 5K upload at a time. */
+    CVPixelBufferRef pending_pixbuf;
+    uint64_t decoded_frames;
+    uint64_t skipped_frames;
+    uint64_t last_fps_decoded;
+    uint64_t last_fps_skipped;
+
     int      server_fd;
     int      client_fd;
 
@@ -114,7 +127,6 @@ struct app {
     int      video_renderer;   /* enum tb_disp_renderer, applies at start */
     int      display_sync;     /* Metal: raw modes wait for the refresh */
     int      perf_show_stats;
-    CVPixelBufferRef pending_pixel_buffer;
     /* Changed-rows raw frames: the receiver's copy of the picture, and the
      * rows patched since the last draw (drawn once per loop with
      * "draw only the newest frame"). */
@@ -738,6 +750,7 @@ static void bonjour_update(struct app *a, uint16_t port) {
     TXTRecordSetValue(&txt, "panel", (uint8_t)strlen(a->panel_text), a->panel_text);
     TXTRecordSetValue(&txt, "version", (uint8_t)strlen(TB_RECEIVER_VERSION), TB_RECEIVER_VERSION);
     TXTRecordSetValue(&txt, "supportsHEVCDecode", 1, tb_dec_supports_hevc_hwdecode() ? "1" : "0");
+    TXTRecordSetValue(&txt, "supportsHEVCSoftwareDecode", 1, tb_dec_supports_hevc_softwaredecode() ? "1" : "0");
     TXTRecordSetValue(&txt, "supportsRawNV12", 1, "1");
 
     struct tb_display_info info;
@@ -1073,46 +1086,57 @@ static void on_frame(const uint8_t *y, int y_stride,
     a->frames++;
 }
 
-static void tb_receiver_present_pixel_buffer(struct app *a, CVPixelBufferRef pb) {
+/* Uploads and draws one decoded frame. */
+static void present_pixbuf(struct app *a, CVPixelBufferRef pb) {
     if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) != 0) return;
-    on_frame((const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0),
-             (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 0),
-             (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1),
-             (int)CVPixelBufferGetBytesPerRowOfPlane(pb, 1),
-             (int)CVPixelBufferGetWidth(pb),
-             (int)CVPixelBufferGetHeight(pb),
-             a);
+    const uint8_t *y  = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
+    size_t         ys =                  CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
+    const uint8_t *uv = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1);
+    size_t         us =                  CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+    int w = (int)CVPixelBufferGetWidth(pb);
+    int h = (int)CVPixelBufferGetHeight(pb);
+    if (y && uv && w > 0 && h > 0) {
+        on_frame(y, (int)ys, uv, (int)us, w, h, a);
+    }
     CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
 }
 
-/* With "draw only the newest frame", every frame is still decoded (later
- * frames depend on it), but only the latest one per loop is drawn. */
-static void on_pixel_buffer(void *pixel_buffer, void *ud) {
+/* With "draw only the newest frame" (on by default), every frame is still
+ * decoded, because later frames depend on it, but only the newest one per
+ * loop is uploaded and drawn. With it off, every frame is drawn. */
+static void on_pixbuf(void *cv_pixel_buffer, void *ud) {
     struct app *a = (struct app *)ud;
-    CVPixelBufferRef pb = (CVPixelBufferRef)pixel_buffer;
+    CVPixelBufferRef pb = (CVPixelBufferRef)cv_pixel_buffer;
+    if (!pb) return;
+    a->decoded_frames++;
     if (!a->perf_newest_frame) {
-        tb_receiver_present_pixel_buffer(a, pb);
+        present_pixbuf(a, pb);
         return;
     }
-    if (a->pending_pixel_buffer) {
-        CVPixelBufferRelease(a->pending_pixel_buffer);
+    CVPixelBufferRetain(pb);
+    if (a->pending_pixbuf) {
+        CVPixelBufferRelease(a->pending_pixbuf);
+        a->skipped_frames++;
         a->stats_skipped++;
     }
-    a->pending_pixel_buffer = CVPixelBufferRetain(pb);
+    a->pending_pixbuf = pb;
 }
 
-static void tb_receiver_present_pending_frame(struct app *a) {
-    CVPixelBufferRef pb = a->pending_pixel_buffer;
+static void drop_pending_frame(struct app *a) {
+    if (a->pending_pixbuf) {
+        CVPixelBufferRelease(a->pending_pixbuf);
+        a->pending_pixbuf = NULL;
+    }
+}
+
+/* Upload + present the newest decoded frame, if any. Called once per main
+ * loop iteration, after the socket has been drained. */
+static void present_pending_frame(struct app *a) {
+    CVPixelBufferRef pb = a->pending_pixbuf;
     if (!pb) return;
-    a->pending_pixel_buffer = NULL;
-    tb_receiver_present_pixel_buffer(a, pb);
+    a->pending_pixbuf = NULL;
+    present_pixbuf(a, pb);
     CVPixelBufferRelease(pb);
-}
-
-static void tb_receiver_drop_pending_frame(struct app *a) {
-    if (!a->pending_pixel_buffer) return;
-    CVPixelBufferRelease(a->pending_pixel_buffer);
-    a->pending_pixel_buffer = NULL;
 }
 
 /* Raw passthrough: render received NV12 planes directly, bypassing the decoder.
@@ -1645,6 +1669,7 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
         /* Performance test data; discard */
         break;
     case TB_PKT_TEARDOWN:
+        tb_connection_log("sender_teardown", 0);
         fprintf(stderr, "[main] teardown requested by sender\n");
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.session_closed_by_sender");
         a->close_requested = 1;
@@ -1657,19 +1682,45 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
 
 /* ---- Networking helpers ---------------------------------------------- */
 
+/* Yield between packets after this budget. A single synchronous decode may
+ * take longer; never discard encoded frames to meet the deadline. Applies to
+ * the main connection and to each parallel data connection. */
+#define TB_DRAIN_BUDGET_MS 8
+
+struct tb_drain_budget {
+    struct app *app;
+    uint64_t deadline_ms;
+};
+
+static int drain_should_yield(void *ud) {
+    struct tb_drain_budget *budget = ud;
+    return budget->app->close_requested || now_ms() >= budget->deadline_ms;
+}
+
 static int drain_fd(struct app *a, int fd, struct tb_parser *parser) {
     /* Shared by all connections; the receiver reads them on one thread. */
     static uint8_t buf[1024 * 1024];
     int saw_data = 0;
+    struct tb_drain_budget budget = { a, now_ms() + TB_DRAIN_BUDGET_MS };
+    if (a->close_requested) return 0;
+    size_t buffered = parser->len;
+    int parsed = tb_parser_feed_until(parser, NULL, 0, drain_should_yield, &budget);
+    if (parsed < 0) return -1;
+    if (parser->len < buffered) saw_data = 1;
+    if (parsed > 0) return saw_data;
     for (;;) {
+        if (drain_should_yield(&budget)) return saw_data;
         ssize_t n = read(fd, buf, sizeof(buf));
         if (n > 0) {
             saw_data = 1;
             a->stats_bytes += (uint64_t)n;
-            if (tb_parser_feed(parser, buf, (size_t)n) < 0) return -1;
+            parsed = tb_parser_feed_until(parser, buf, (size_t)n, drain_should_yield, &budget);
+            if (parsed < 0) return -1;
+            if (parsed > 0) return saw_data;
         } else if (n == 0) {
             return -1;  /* peer closed */
         } else {
+            if (errno == EINTR) continue;
             if (errno == EAGAIN || errno == EWOULDBLOCK) return saw_data;
             perror("[main] read");
             return -1;
@@ -1741,6 +1792,8 @@ static void accept_data_streams(struct app *a, uint64_t t) {
             close(c);
             continue;
         }
+        /* Data connections carry whole uncompressed frames: large buffer. */
+        tb_net_set_large_rcvbuf(c);
         slot->fd = c;
         slot->accepted = 0;
         slot->rejected = 0;
@@ -2318,7 +2371,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsHEVCSoftwareDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":%s,"
         "\"appVersion\":\"" TB_RECEIVER_VERSION "\",\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
         escaped_name,
@@ -2330,6 +2383,7 @@ static void send_receiver_info(struct app *a) {
         profile.capture_w,
         profile.capture_h,
         tb_dec_supports_hevc_hwdecode() ? "true" : "false",
+        tb_dec_supports_hevc_softwaredecode() ? "true" : "false",
         /* Full 10-bit colour only where it is shown in 10 bits (Metal);
          * otherwise the Sender uses the 10-bit dithered mode instead. */
         tb_disp_native_rgb10(a->disp) ? "true" : "false",
@@ -2381,6 +2435,7 @@ static void tb_receiver_update_window_visibility(struct app *a) {
 }
 
 static void close_client(struct app *a) {
+    if (a->client_fd >= 0) tb_connection_log("session_closed", 0);
     if (a->client_fd >= 0) close(a->client_fd);
     a->client_fd = -1;
     tb_restore_system_volume();
@@ -2389,7 +2444,6 @@ static void close_client(struct app *a) {
     /* Standard mode returns to the waiting window; background and faceless
      * hide it. */
     a->window_requested = !a->background_mode;
-    tb_receiver_drop_pending_frame(a);
     tb_receiver_reset_pending_raw(a);
     tb_disp_reset_video(a->disp);
     tb_raw_frame_free(&a->raw_frame);
@@ -2409,6 +2463,7 @@ static void close_client(struct app *a) {
     a->last_clipboard_text[0] = '\0';
     tb_parser_free(&a->parser);
     tb_parser_init(&a->parser, on_packet, a);
+    drop_pending_frame(a);
     tb_dec_reset(a->dec);   /* fresh decoder for next session */
     tb_audio_close_for_idle(a);
     fprintf(stderr, "[main] client disconnected\n");
@@ -2586,7 +2641,7 @@ int main(int argc, char **argv) {
     bonjour_update(&a, TB_PORT);
 
     a.dec = tb_dec_create(on_frame, &a);
-    if (a.dec) tb_dec_set_pixel_buffer_cb(a.dec, on_pixel_buffer);
+    if (a.dec) tb_dec_set_pixbuf_cb(a.dec, on_pixbuf);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
 
     tb_parser_init(&a.parser, on_packet, &a);
@@ -2768,6 +2823,7 @@ int main(int argc, char **argv) {
                 a.last_recv_ms = t;
                 SDL_DisableScreenSaver();
                 fprintf(stderr, "[main] client connected\n");
+                tb_connection_log("client_connected", 0);
                 tb_parser_free(&a.parser);
                 tb_parser_init(&a.parser, on_packet, &a);
                 snprintf(a.stream_token, sizeof(a.stream_token), "%08x%08x",
@@ -2782,6 +2838,7 @@ int main(int argc, char **argv) {
                 drain_result = 1;
             }
             if (drain_result < 0) {
+                tb_connection_log("receive_closed_or_invalid", 0);
                 close_client(&a);
             } else {
                 socket_activity = drain_result;
@@ -2801,6 +2858,7 @@ int main(int argc, char **argv) {
                                 "[main] monotonic clock moved backwards; "
                                 "rebasing sender idle watchdog\n");
                     } else if (watchdog_result == TB_IDLE_WATCHDOG_EXPIRED) {
+                        tb_connection_log("sender_idle_timeout_ms", (int64_t)idle_ms);
                         /* The sender streams frames continuously and heartbeats
                          * every 2s. Total silence means it died without a FIN
                          * (crash, pulled cable, force sleep). Without this reap,
@@ -2816,6 +2874,12 @@ int main(int argc, char **argv) {
             }
         }
 
+        if (a.client_fd >= 0) {
+            present_pending_frame(&a);
+        } else {
+            drop_pending_frame(&a);
+        }
+
         if (t - a.last_permissions_poll_ms >= 250) {
             a.last_permissions_poll_ms = t;
             tb_receiver_poll_permissions(&a);
@@ -2828,7 +2892,6 @@ int main(int argc, char **argv) {
         }
 
         if (a.client_fd >= 0) {
-            tb_receiver_present_pending_frame(&a);
             tb_receiver_present_pending_raw(&a);
         }
 
@@ -2920,6 +2983,15 @@ int main(int argc, char **argv) {
             uint64_t df = a.frames - a.last_fps_count;
             a.last_fps_count   = a.frames;
             a.last_fps_tick_ms = t;
+            uint64_t dd = a.decoded_frames - a.last_fps_decoded;
+            uint64_t ds = a.skipped_frames - a.last_fps_skipped;
+            a.last_fps_decoded = a.decoded_frames;
+            a.last_fps_skipped = a.skipped_frames;
+            if (ds > 0) {
+                fprintf(stderr, "[main] %llu fps (decoded %llu, skipped %llu stale)\n",
+                        (unsigned long long)df, (unsigned long long)dd,
+                        (unsigned long long)ds);
+            }
             char stats[256];
             char changed[64] = "";
             const double draw_avg_ms = a.stats_draw_count
@@ -2985,6 +3057,7 @@ int main(int argc, char **argv) {
     if (a.server_fd >= 0) close(a.server_fd);
     bonjour_deinit(&a);
     tb_parser_free(&a.parser);
+    drop_pending_frame(&a);
     tb_dec_destroy(a.dec);
     tb_audio_close_for_idle(&a);
     tb_disp_destroy(a.disp);

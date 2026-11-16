@@ -52,6 +52,7 @@ struct TBMonitorDisplayProfile: Codable {
     var captureWidth: Int
     var captureHeight: Int
     var supportsHEVCDecode: Bool?
+    var supportsHEVCSoftwareDecode: Bool?
     var supportsRawNV12: Bool?
     /// Receiver understands packet type 0x24 (changed rows only).
     var supportsRawRegions: Bool?

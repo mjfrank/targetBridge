@@ -72,7 +72,25 @@ See the [full 4.0 release notes](docs/releases/4.0.md) and
 [Performance](docs/Performance.md). The version number is this fork's proposal;
 the original maintainer decides how these changes ship upstream.
 
-## TargetBridge 3.6.0
+This version includes the upstream 3.6.1 and 3.6.2 maintenance fixes.
+
+## Previous Release: 3.6.2
+
+The [3.6.2 patch notes](docs/releases/3.6.2.md) describe the restored 4 MiB
+Receiver TCP receive-window budget, which reduces queued-video age under a
+controlled slow-reader workload. Issue #237 is not claimed fully resolved.
+Packages remain ad-hoc signed and non-notarized; macOS may require permissions
+again. Installed apps are not changed by preparing or publishing this release.
+
+## Previous Release: 3.6.1
+
+See the [3.6.1 release notes](docs/releases/3.6.1.md) for the maintenance fixes,
+Settings appearance correction and UI-independent heartbeat.
+The owner approved **ad-hoc signed, non-notarized** distribution for this release;
+macOS may show security warnings and require privacy permissions again.
+Physical reconnect/sleep and all intermittent disconnects are not certified fixed.
+
+## Previous Release: 3.6.0
 
 TargetBridge 3.6.0 improves everyday connection setup and makes the display
 pipeline more adaptable without changing the stable default workflows:

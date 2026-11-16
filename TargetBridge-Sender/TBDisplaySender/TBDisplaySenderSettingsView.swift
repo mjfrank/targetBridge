@@ -26,7 +26,7 @@ struct TBDisplaySenderSettingsView: View {
                                 )
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.95))
+                                .foregroundStyle(Color.primary.opacity(0.95))
                         }
                         .frame(width: 68, height: 68)
 
@@ -237,8 +237,7 @@ struct TBDisplaySenderSettingsView: View {
             }
             .padding(20)
         }
-        .background(appBackground)
-        .preferredColorScheme(.dark)
+        .background(TBSettingsBackground())
         .onAppear {
             service.refreshAudioDriverStatus()
             service.updateBrightnessKeyController()
@@ -286,7 +285,7 @@ struct TBDisplaySenderSettingsView: View {
             .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.primary.opacity(0.06))
             )
     }
 
@@ -297,7 +296,7 @@ struct TBDisplaySenderSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(addon.name)
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
-                        Text(addon.summary)
+                        Text(TBDisplaySenderL10n.addonSummary(addon, service.language))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -376,18 +375,6 @@ struct TBDisplaySenderSettingsView: View {
         }
     }
 
-    private var appBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.12, green: 0.13, blue: 0.14),
-                Color(red: 0.08, green: 0.09, blue: 0.10)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
-    }
-
     private var settingsTitle: String {
         switch service.language {
         case .italian: return "Impostazioni TargetBridge"
@@ -400,11 +387,11 @@ struct TBDisplaySenderSettingsView: View {
 
     private var settingsSubtitle: String {
         switch service.language {
-        case .italian: return "Preferenze globali dell’app separate dalla dashboard operativa."
+        case .italian: return "Preferenze generali dell’app; le impostazioni delle sessioni sono nella finestra principale."
         case .english: return "Global app preferences separated from the operational dashboard."
         case .german: return "Globale App-Einstellungen getrennt vom operativen Dashboard."
         case .french: return "Préférences globales de l’app séparées du tableau de bord opérationnel."
-        case .chinese: return "全局应用偏好设置与主操作面板分离。"
+        case .chinese: return "App 的全局偏好设置，与主面板分开。"
         }
     }
 
@@ -440,7 +427,7 @@ struct TBDisplaySenderSettingsView: View {
 
     private var aboutTitle: String {
         switch service.language {
-        case .italian: return "About"
+        case .italian: return "Informazioni"
         case .english: return "About"
         case .german: return "Info"
         case .french: return "À propos"
@@ -450,11 +437,11 @@ struct TBDisplaySenderSettingsView: View {
 
     private var aboutBody: String {
         switch service.language {
-        case .italian: return "TargetBridge e una utility open source per riutilizzare pannelli iMac Intel come display esterni per Mac moderni. Le preferenze generali vivono qui; le impostazioni operative di ogni sessione restano nella finestra principale."
+        case .italian: return "TargetBridge è un’app open source per usare gli iMac Intel come schermi esterni per i Mac moderni. Qui trovi le preferenze generali; le impostazioni delle singole sessioni sono nella finestra principale."
         case .english: return "TargetBridge is an open-source utility for reusing Intel iMac panels as external displays for modern Macs. Global preferences live here; per-session operational settings stay in the main window."
         case .german: return "TargetBridge ist ein Open-Source-Werkzeug, um Intel-iMac-Panels als externe Displays für moderne Macs weiterzuverwenden. Globale Einstellungen sind hier; operative Sitzungsoptionen sind im Hauptfenster."
         case .french: return "TargetBridge est un utilitaire open source qui permet de réutiliser les dalles d’iMac Intel comme écrans externes pour les Mac modernes. Les préférences globales se trouvent ici ; les réglages de chaque session restent dans la fenêtre principale."
-        case .chinese: return "TargetBridge 是一个开源工具，可将 Intel iMac 面板重新用作现代 Mac 的外接显示器。全局偏好设置在这里管理；每个会话的操作设置保留在主窗口中。"
+        case .chinese: return "TargetBridge 是一个开源工具，让 Intel iMac 的屏幕成为新款 Mac 的外接显示器。全局偏好设置在这里；每个会话的设置在主窗口里。"
         }
     }
 
@@ -470,11 +457,11 @@ struct TBDisplaySenderSettingsView: View {
 
     private var releaseTitle: String {
         switch service.language {
-        case .italian: return "Ultima release"
+        case .italian: return "Ultima versione"
         case .english: return "Latest release"
         case .german: return "Letztes Release"
         case .french: return "Dernière version"
-        case .chinese: return "最新发布"
+        case .chinese: return "最新版本"
         }
     }
 
@@ -494,7 +481,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Add-ons"
         case .german: return "Add-ons"
         case .french: return "Extensions"
-        case .chinese: return "附加组件"
+        case .chinese: return "扩展"
         }
     }
 
@@ -504,7 +491,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Add-ons are loaded from safe JSON manifests. Official ones ship with the app, while custom ones can be imported into the user Addons folder."
         case .german: return "Add-ons werden aus sicheren JSON-Manifests geladen. Offizielle Add-ons sind in der App enthalten, benutzerdefinierte können in den Benutzer-Addons-Ordner importiert werden."
         case .french: return "Les extensions sont chargées depuis des manifestes JSON sûrs. Les extensions officielles sont incluses dans l’app ; les extensions personnalisées peuvent être importées dans le dossier utilisateur Addons."
-        case .chinese: return "附加组件通过安全的 JSON 清单加载。官方附加组件随应用提供，自定义附加组件可导入到用户 Addons 文件夹。"
+        case .chinese: return "扩展通过安全的 JSON 清单加载。官方扩展随 App 提供，自定义扩展可以导入到用户的 Addons 文件夹。"
         }
     }
 
@@ -514,7 +501,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Import Add-on..."
         case .german: return "Add-on importieren..."
         case .french: return "Importer une extension..."
-        case .chinese: return "导入附加组件..."
+        case .chinese: return "导入扩展…"
         }
     }
 
@@ -544,7 +531,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "No add-ons found. Import a JSON manifest or use the bundled official ones."
         case .german: return "Keine Add-ons gefunden. Importiere ein JSON-Manifest oder nutze die eingebauten offiziellen Add-ons."
         case .french: return "Aucune extension trouvée. Importez un manifeste JSON ou utilisez les extensions officielles incluses."
-        case .chinese: return "未找到附加组件。请导入 JSON 清单或使用内置官方附加组件。"
+        case .chinese: return "没有找到扩展。请导入 JSON 清单，或使用内置的官方扩展。"
         }
     }
 
@@ -554,7 +541,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Stop all sessions before enabling or disabling an add-on."
         case .german: return "Beende alle Sitzungen, bevor du ein Add-on aktivierst oder deaktivierst."
         case .french: return "Arrêtez toutes les sessions avant d’activer ou de désactiver une extension."
-        case .chinese: return "请先停止所有会话，再启用或禁用附加组件。"
+        case .chinese: return "请先停止所有会话，再启用或停用扩展。"
         }
     }
 
@@ -574,7 +561,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Disabled"
         case .german: return "Deaktiviert"
         case .french: return "Désactivée"
-        case .chinese: return "已禁用"
+        case .chinese: return "已停用"
         }
     }
 
@@ -600,11 +587,11 @@ struct TBDisplaySenderSettingsView: View {
 
     private var capabilitiesTitle: String {
         switch service.language {
-        case .italian: return "Capability"
+        case .italian: return "Funzionalità"
         case .english: return "Capabilities"
         case .german: return "Fähigkeiten"
         case .french: return "Fonctionnalités"
-        case .chinese: return "能力"
+        case .chinese: return "功能"
         }
     }
 
@@ -614,7 +601,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Add-on import failed"
         case .german: return "Add-on-Import fehlgeschlagen"
         case .french: return "Échec de l’importation de l’extension"
-        case .chinese: return "导入附加组件失败"
+        case .chinese: return "导入扩展失败"
         }
     }
 
@@ -624,7 +611,7 @@ struct TBDisplaySenderSettingsView: View {
         case .english: return "Choose a JSON manifest file for the add-on."
         case .german: return "Wähle eine JSON-Manifestdatei für das Add-on."
         case .french: return "Choisissez un fichier manifeste JSON pour l’extension."
-        case .chinese: return "请选择附加组件的 JSON 清单文件。"
+        case .chinese: return "请选择扩展的 JSON 清单文件。"
         }
     }
 
@@ -669,7 +656,7 @@ struct TBDisplaySenderSettingsView: View {
         case (.brightnessKeys, .german): return "Helligkeitstasten"
         case (.brightnessKeys, .french): return "Touches de luminosité"
         case (.brightnessKeys, .chinese): return "亮度键"
-        case (.inputDockstation, .chinese): return "输入扩展坞"
+        case (.inputDockstation, .chinese): return "键鼠共享（Input Dockstation）"
         }
     }
 }

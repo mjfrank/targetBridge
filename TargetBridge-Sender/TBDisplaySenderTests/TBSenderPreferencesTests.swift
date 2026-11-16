@@ -5,14 +5,16 @@ import XCTest
 @MainActor
 final class TBSenderPreferencesTests: XCTestCase {
     func testLanguageFollowsSystemRegionVariants() {
-        XCTAssertEqual(TBDisplaySenderLanguage.systemDefault(preferredLanguages: ["de-DE"]), .german)
-        XCTAssertEqual(TBDisplaySenderLanguage.systemDefault(preferredLanguages: ["zh-Hans-CN"]), .chinese)
-        XCTAssertEqual(TBDisplaySenderLanguage.systemDefault(preferredLanguages: ["it"]), .italian)
+        XCTAssertEqual(TBDisplaySenderLanguage.preferred(by: ["de-DE"]), .german)
+        XCTAssertEqual(TBDisplaySenderLanguage.preferred(by: ["zh-Hans-CN"]), .chinese)
+        XCTAssertEqual(TBDisplaySenderLanguage.preferred(by: ["it"]), .italian)
     }
 
-    func testUnavailableOrMissingLanguageFallsBackToEnglish() {
-        XCTAssertEqual(TBDisplaySenderLanguage.systemDefault(preferredLanguages: ["es-ES", "de-DE"]), .english)
-        XCTAssertEqual(TBDisplaySenderLanguage.systemDefault(preferredLanguages: []), .english)
+    func testFirstSupportedLanguageOrEnglish() {
+        // Upstream 3.6.1: the first supported language in the system's order.
+        XCTAssertEqual(TBDisplaySenderLanguage.preferred(by: ["es-ES", "de-DE"]), .german)
+        XCTAssertEqual(TBDisplaySenderLanguage.preferred(by: ["es-ES"]), .english)
+        XCTAssertEqual(TBDisplaySenderLanguage.preferred(by: []), .english)
     }
 
     func testBrightnessKeysAreDecoded() {

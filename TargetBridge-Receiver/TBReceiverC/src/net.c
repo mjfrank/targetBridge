@@ -55,11 +55,19 @@ static uint32_t read_be32(const uint8_t *p) {
 }
 
 int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
-    if (parser_reserve(p, p->len + n + 1) < 0) return -1;  /* +1 for NUL sentinel */
-    memcpy(p->buf + p->len, data, n);
-    p->len += n;
+    return tb_parser_feed_until(p, data, n, NULL, NULL);
+}
+
+int tb_parser_feed_until(struct tb_parser *p, const uint8_t *data, size_t n,
+                         tb_parser_yield_cb should_yield, void *yield_ud) {
+    if (n > 0) {
+        if (parser_reserve(p, p->len + n + 1) < 0) return -1;
+        memcpy(p->buf + p->len, data, n);
+        p->len += n;
+    }
 
     size_t off = 0;
+    int yielded = 0;
     while (p->len - off >= TB_HDR_BYTES) {
         uint32_t pkt_len = read_be32(p->buf + off);
         if (pkt_len < 1 || pkt_len > 64 * 1024 * 1024) {  /* sanity */
@@ -83,6 +91,10 @@ int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
         p->cb(type, payload, plen, p->ud);
         *sentinel = saved;
         off += 4 + pkt_len;
+        if (should_yield && should_yield(yield_ud)) {
+            yielded = 1;
+            break;
+        }
     }
 
     /* shift remainder to front */
@@ -91,16 +103,17 @@ int tb_parser_feed(struct tb_parser *p, const uint8_t *data, size_t n) {
         if (rem > 0) memmove(p->buf, p->buf + off, rem);
         p->len = rem;
     }
-    return 0;
+    return yielded;
 }
 
 /* ---- Server ----------------------------------------------------------- */
 
 /* The largest receive buffer the system allows, up to 16 MiB (macOS caps it
- * at kern.ipc.maxsockbuf, 8 MiB by default). The kernel keeps receiving a
- * whole 5K frame over the data streams while the Receiver is busy drawing
- * the previous one, instead of making the Sender stop. */
-static void tb_net_set_large_rcvbuf(int fd) {
+ * at kern.ipc.maxsockbuf, 8 MiB by default). Only for the parallel data
+ * connections of the uncompressed modes: the kernel keeps receiving a whole
+ * 5K frame while the Receiver draws the previous one. The main connection
+ * keeps the 4 MiB of tb_net_accept, which limits stale H.264/HEVC video. */
+void tb_net_set_large_rcvbuf(int fd) {
     for (int size = 16 * 1024 * 1024; size >= 1024 * 1024; size /= 2) {
         if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) == 0) return;
     }
@@ -113,8 +126,9 @@ int tb_net_listen(uint16_t port) {
     int yes = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
     setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
-    /* Set before listen() so accepted connections inherit it and the TCP
-     * window scale negotiated in the handshake is large enough. */
+    /* Set before listen() so the TCP window scale negotiated in the handshake
+     * allows the data connections' large buffers; tb_net_accept then sets
+     * each accepted connection's own size. */
     tb_net_set_large_rcvbuf(fd);
 
     struct sockaddr_in a;
@@ -139,7 +153,15 @@ int tb_net_accept(int server_fd) {
     if (c < 0) return -1;
     int fl = fcntl(c, F_GETFL, 0);
     fcntl(c, F_SETFL, fl | O_NONBLOCK);
-    tb_net_set_large_rcvbuf(c);
+    /* Keep the 3.4.2 receive-window budget. A larger window hides a slow decoder
+     * from TCP backpressure and queues stale video before the newest-frame
+     * presentation policy can act. The parser assembles keyframes across reads;
+     * they do not need to fit in the kernel receive window. */
+    static const int rcvbuf_sizes[] = { 4 << 20, 2 << 20, 1 << 20 };
+    for (size_t i = 0; i < sizeof(rcvbuf_sizes) / sizeof(rcvbuf_sizes[0]); i++) {
+        int rcvbuf = rcvbuf_sizes[i];
+        if (setsockopt(c, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0) break;
+    }
     /* disable Nagle for low latency */
     int yes = 1;
     setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));

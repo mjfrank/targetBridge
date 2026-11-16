@@ -31,17 +31,23 @@ final class TBDisplaySenderStatusItemController: NSObject {
 
     private func bind() {
         service.$showsMenuBarIcon
-            .sink { [weak self] _ in
+            .sink { [weak self] isVisible in
                 guard let self, self.hasActivated else { return }
-                // Published values change after willSet; read them next tick.
-                DispatchQueue.main.async { self.syncVisibility() }
+                // @Published emits before the stored service property changes.
+                self.syncVisibility(TBDisplaySenderService.menuBarIconVisible(
+                    presentation: self.service.appPresentation,
+                    showsMenuBarIcon: isVisible
+                ))
             }
             .store(in: &cancellables)
 
         service.$appPresentation
-            .sink { [weak self] _ in
+            .sink { [weak self] presentation in
                 guard let self, self.hasActivated else { return }
-                DispatchQueue.main.async { self.syncVisibility() }
+                self.syncVisibility(TBDisplaySenderService.menuBarIconVisible(
+                    presentation: presentation,
+                    showsMenuBarIcon: self.service.showsMenuBarIcon
+                ))
             }
             .store(in: &cancellables)
 
@@ -63,11 +69,11 @@ final class TBDisplaySenderStatusItemController: NSObject {
     func activate() {
         guard !hasActivated else { return }
         hasActivated = true
-        syncVisibility()
+        syncVisibility(service.menuBarIconVisible)
     }
 
-    private func syncVisibility() {
-        if service.menuBarIconVisible {
+    private func syncVisibility(_ isVisible: Bool) {
+        if isVisible {
             ensureStatusItem()
             refreshStatusItem()
         } else {
@@ -363,7 +369,7 @@ final class TBDisplaySenderStatusItemController: NSObject {
 
     private func connectionInfoMenuLabel() -> String {
         switch service.language {
-        case .italian: return "Info connessione"
+        case .italian: return "Informazioni sulla connessione"
         case .french: return "Infos de connexion"
         case .english: return "Connection info"
         case .german: return "Verbindungsinfo"

@@ -10,6 +10,7 @@
 #include "tb_i18n.h"
 #include "tb_gesture_bridge.h"
 #include "tb_metal_view.h"
+#include "status_layout.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CoreGraphics.h>
@@ -210,6 +211,32 @@ static void tb_disp_destroy_status_texture(struct tb_display *d) {
     }
 }
 
+/* Typographic width of `text` in the given font, for centring. */
+static CGFloat tb_disp_text_width(const char *text, const char *font_name, CGFloat font_size) {
+    if (!text || !*text) return 0;
+    CFStringRef cf_text = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
+    CFStringRef cf_font_name = CFStringCreateWithCString(NULL, font_name, kCFStringEncodingUTF8);
+    CTFontRef font = cf_font_name ? CTFontCreateWithName(cf_font_name, font_size, NULL) : NULL;
+    CGFloat width = 0;
+    if (cf_text && font) {
+        const void *keys[] = { kCTFontAttributeName };
+        const void *values[] = { font };
+        CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 1,
+                                                   &kCFTypeDictionaryKeyCallBacks,
+                                                   &kCFTypeDictionaryValueCallBacks);
+        CFAttributedStringRef attr = attrs ? CFAttributedStringCreate(NULL, cf_text, attrs) : NULL;
+        CTLineRef line = attr ? CTLineCreateWithAttributedString(attr) : NULL;
+        if (line) width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+        if (line) CFRelease(line);
+        if (attr) CFRelease(attr);
+        if (attrs) CFRelease(attrs);
+    }
+    if (font) CFRelease(font);
+    if (cf_font_name) CFRelease(cf_font_name);
+    if (cf_text) CFRelease(cf_text);
+    return width;
+}
+
 static void tb_disp_draw_text(CGContextRef ctx,
                               const char *text,
                               const char *font_name,
@@ -281,32 +308,12 @@ static void tb_disp_draw_text(CGContextRef ctx,
     CFRelease(cf_text);
 }
 
-/* Width of `text` in the given font, in pixels. */
-static CGFloat tb_disp_text_width(const char *text, const char *font_name, CGFloat font_size) {
-    if (!text || !*text) return 0.0;
-    CFStringRef cf_text = CFStringCreateWithCString(NULL, text, kCFStringEncodingUTF8);
-    CFStringRef cf_font_name = CFStringCreateWithCString(NULL, font_name, kCFStringEncodingUTF8);
-    CTFontRef font = cf_font_name ? CTFontCreateWithName(cf_font_name, font_size, NULL) : NULL;
-    CGFloat width = 0.0;
-    if (cf_text && font) {
-        const void *keys[] = { kCTFontAttributeName };
-        const void *values[] = { font };
-        CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 1,
-                                                   &kCFTypeDictionaryKeyCallBacks,
-                                                   &kCFTypeDictionaryValueCallBacks);
-        CFAttributedStringRef attributed = attrs ? CFAttributedStringCreate(NULL, cf_text, attrs) : NULL;
-        CTLineRef line = attributed ? CTLineCreateWithAttributedString(attributed) : NULL;
-        if (line) {
-            width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
-            CFRelease(line);
-        }
-        if (attributed) CFRelease(attributed);
-        if (attrs) CFRelease(attrs);
-    }
-    if (font) CFRelease(font);
-    if (cf_font_name) CFRelease(cf_font_name);
-    if (cf_text) CFRelease(cf_text);
-    return width;
+/* Draw `text` centred on `center_x`, so any language and any product name fit. */
+static void tb_disp_draw_text_centered(CGContextRef ctx, const char *text, const char *font_name,
+                                       CGFloat font_size, CGFloat center_x, CGFloat y,
+                                       CGFloat r, CGFloat g, CGFloat b) {
+    CGFloat width = tb_disp_text_width(text, font_name, font_size);
+    tb_disp_draw_text(ctx, text, font_name, font_size, center_x - width / 2.0, y, r, g, b);
 }
 
 static void tb_disp_fill_rect(CGContextRef ctx,
@@ -452,31 +459,40 @@ static void tb_disp_rebuild_status_texture(struct tb_display *d,
                                   38.0 * scale,
                                   0.075, 0.09, 0.12, 1.0);
         tb_disp_draw_brand_icon(ctx, icon_x, icon_y, icon_size);
-        tb_disp_draw_text(ctx, "TargetBridge", title_font, 42.0 * scale,
-                          center_x - 156.0 * scale, icon_y + icon_size + 74.0 * scale,
-                          0.95, 0.98, 0.97);
-        tb_disp_draw_text(ctx, "RECEIVER", mono_bold_font, 15.0 * scale,
-                          center_x - 48.0 * scale, icon_y + icon_size + 104.0 * scale,
-                          0.40, 0.90, 0.59);
-        tb_disp_draw_text(ctx, tb_i18n_get("receiver.splash.connecting"), body_font, 23.0 * scale,
-                          center_x - 158.0 * scale, icon_y + icon_size + 166.0 * scale,
-                          0.93, 0.95, 0.99);
-        tb_disp_draw_text(ctx, tb_i18n_get("receiver.splash.waiting_first_frame"), body_font, 17.0 * scale,
-                          center_x - 178.0 * scale, icon_y + icon_size + 202.0 * scale,
-                          0.62, 0.68, 0.77);
-        tb_disp_draw_text(ctx, TB_RECEIVER_VERSION, mono_font, 13.0 * scale,
-                          center_x - 26.0 * scale, icon_y + icon_size + 310.0 * scale,
-                          0.40, 0.45, 0.53);
+        tb_disp_draw_text_centered(ctx, tb_i18n_get("common.app_name"), title_font, 42.0 * scale,
+                                   center_x, icon_y + icon_size + 74.0 * scale,
+                                   0.95, 0.98, 0.97);
+        tb_disp_draw_text_centered(ctx, tb_i18n_get("receiver.splash.role"), mono_bold_font, 15.0 * scale,
+                                   center_x, icon_y + icon_size + 104.0 * scale,
+                                   0.40, 0.90, 0.59);
+        tb_disp_draw_text_centered(ctx, tb_i18n_get("receiver.splash.connecting"), body_font, 23.0 * scale,
+                                   center_x, icon_y + icon_size + 166.0 * scale,
+                                   0.93, 0.95, 0.99);
+        tb_disp_draw_text_centered(ctx, tb_i18n_get("receiver.splash.waiting_first_frame"), body_font, 17.0 * scale,
+                                   center_x, icon_y + icon_size + 202.0 * scale,
+                                   0.62, 0.68, 0.77);
+        tb_disp_draw_text_centered(ctx, TB_RECEIVER_VERSION, mono_font, 13.0 * scale,
+                                   center_x, icon_y + icon_size + 310.0 * scale,
+                                   0.40, 0.45, 0.53);
     } else {
+    /* The canvas has a top-left origin (y grows down). This layout was written
+     * for a bottom-left origin and drew upside down (title at the bottom, each
+     * caption under its value). It is the same layout measured from the top:
+     * every baseline y became H - y and every rect top became H - y - height. */
+    const struct tb_status_layout layout = tb_status_layout_for_size(drawable_w, drawable_h);
+    CGContextScaleCTM(ctx, layout.scale, layout.scale);
+    const CGFloat W = layout.width;
+    const CGFloat H = layout.height;
 
-    /* The canvas has a top-left origin, so y grows downward. The bottom bar
-     * leaves room for the native background checkboxes. */
-    const CGFloat canvas_w = (CGFloat)drawable_w;
-    const CGFloat canvas_h = (CGFloat)drawable_h;
+    /* Layout units (scaled down in small windows, see status_layout.h). The
+     * bottom bar keeps a fixed 72 points for the native controls (app mode,
+     * show at start), whatever the scale. */
+    const CGFloat canvas_w = W;
+    const CGFloat canvas_h = H;
     int window_w = 0;
     SDL_GetWindowSize(d->win, &window_w, NULL);
-    const CGFloat points_to_pixels = window_w > 0 ? canvas_w / (CGFloat)window_w : 1.0;
-    const CGFloat bar_h = 72.0 * points_to_pixels;
+    const CGFloat points_to_pixels = window_w > 0 ? (CGFloat)drawable_w / (CGFloat)window_w : 1.0;
+    const CGFloat bar_h = 72.0 * points_to_pixels / (CGFloat)layout.scale;
     const CGFloat bar_y = canvas_h - bar_h;
 
     tb_disp_fill_rect(ctx, 0, 0, canvas_w, canvas_h, 0.06, 0.07, 0.09, 1.0);

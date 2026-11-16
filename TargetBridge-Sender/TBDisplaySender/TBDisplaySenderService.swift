@@ -263,7 +263,9 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
         case .native5k:
             return 48
         case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
-            return 60
+            // See maxKeyFrameIntervalDuration. The uncompressed profiles use
+            // the encoder only when an older Receiver makes them fall back.
+            return 240
         }
     }
 
@@ -279,8 +281,32 @@ enum TBDisplayCapturePreset: String, CaseIterable, Identifiable {
             return 1
         case .smooth1800p60, .crisp2160p60, .retina4k60:
             return 1
-        case .native5k, .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+        case .native5k:
             return 1
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+            // A 5K IDR is several times the size of a P-frame and costs the
+            // receiver several frame budgets to transfer, decode and upload.
+            // One per second produced a regular once-a-second hitch at 60 fps.
+            // The link is reliable TCP and the sender never drops a frame
+            // after encoding, so periodic IDRs only bound recovery time;
+            // every new session still starts on an IDR.
+            return 4
+        }
+    }
+
+    /// Optional hard ceiling on the encoder's output rate, applied through
+    /// `kVTCompressionPropertyKey_DataRateLimits` over a one-second window.
+    /// `AverageBitRate` alone lets the hardware encoder overshoot for long
+    /// stretches on detailed motion (scrolling text, window drags), which at
+    /// 5K60 pushes receiver decode past its frame budget exactly when the
+    /// picture is busiest.
+    var peakBitRate: Int? {
+        switch self {
+        case .native5k60Experimental, .native5k60Uncompressed, .native5k60UncompressedLZ4, .native5k60Enhanced10Bit, .native5k60Full10Bit:
+            return averageBitRate * 3 / 2
+        case .standard1080p, .smooth1080p60, .standard1440p, .smooth1440p60, .smooth1800p60,
+             .crisp2160p60, .retina4k60, .native5k:
+            return nil
         }
     }
 
@@ -888,6 +914,15 @@ private final class TBVideoPipeline: @unchecked Sendable {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: NSNumber(value: preset.maxKeyFrameIntervalDuration))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: NSNumber(value: preset.maxFrameDelayCount))
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: preset.averageBitRate))
+        if let peakBitRate = preset.peakBitRate {
+            let limits = [NSNumber(value: peakBitRate / 8), NSNumber(value: 1.0)] as CFArray
+            let status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limits)
+            if status != noErr {
+                // Not every encoder accepts a rate ceiling; average-only is the
+                // previous behaviour, so carry on without it.
+                NSLog("[TBVideoPipeline] DataRateLimits not supported (status %d); using average bitrate only", status)
+            }
+        }
         if preset.prioritizeSpeed {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
         }
@@ -1470,8 +1505,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var localInterfaceIP = ""
     @Published var selectedReceiverID = "" {
         didSet {
-            if selectedReceiverID.isEmpty {
+            if selectedReceiverID != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -1485,6 +1521,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             UserDefaults.standard.set(receiverIP, forKey: Self.receiverIPDefaultsKey)
             if receiverIP != oldValue {
                 receiverSupportsHEVCDecodeHint = nil
+                receiverSupportsHEVCSoftwareDecodeHint = nil
                 receiverInputMonitoringTrustedHint = nil
                 receiverAccessibilityTrustedHint = nil
             }
@@ -1602,6 +1639,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     @Published var receiverSupportsTrueTone = false
     var audioAddonAvailable = true
     var receiverSupportsHEVCDecodeHint: Bool?
+    var receiverSupportsHEVCSoftwareDecodeHint: Bool?
     var receiverInputMonitoringTrustedHint: Bool?
     var receiverAccessibilityTrustedHint: Bool?
     @Published var senderFPS = 0
@@ -1746,7 +1784,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     private var sessionAckSent = false
     private var captureBlockedByScreenRecordingPermission = false
     private var fpsTimer: Timer?
-    private var heartbeatTimer: Timer?
+    private var heartbeatTimer: TBHeartbeatTimer?
     private var firstFrameTimer: Timer?
     private var cursorTimer: Timer?
     private var connectTimeoutWorkItem: DispatchWorkItem?
@@ -1757,7 +1795,6 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
     /// "waiting(No route to host)") — surfaced when a connect fails or times
     /// out so the real reason is not lost.
     private var lastConnectionStateDetail: String?
-    private var heartbeatSequence: UInt64 = 0
     private var statusState: TBDisplaySenderStatusState = .ready
     private var streamingActivity: NSObjectProtocol?
     private var displayWakeAssertionID = IOPMAssertionID(0)
@@ -1876,7 +1913,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         preset: TBDisplayCapturePreset,
         receiverSupportsHEVC: Bool,
         senderSupportsH264: Bool,
-        senderSupportsHEVC: Bool
+        senderSupportsHEVC: Bool,
+        receiverSupportsHEVCSoftware: Bool = false
     ) -> TBDisplayCodecDecision? {
         let h264Available = senderSupportsH264
         let hevcAvailable = receiverSupportsHEVC && senderSupportsHEVC
@@ -1905,6 +1943,10 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if preferredCodec == kCMVideoCodecType_H264, hevcAvailable {
             return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
         }
+        // Software HEVC is a last resort, and requires an explicit receiver capability.
+        if receiverSupportsHEVCSoftware && senderSupportsHEVC {
+            return TBDisplayCodecDecision(codecType: kCMVideoCodecType_HEVC, usedFallback: true)
+        }
 
         return nil
     }
@@ -1929,7 +1971,9 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 codecType: kCMVideoCodecType_HEVC,
                 width: preset.width,
                 height: preset.height
-            )
+            ),
+            receiverSupportsHEVCSoftware: profile.map { $0.supportsHEVCSoftwareDecode ?? false }
+                ?? receiverSupportsHEVCSoftwareDecodeHint ?? false
         )
     }
 
@@ -2106,7 +2150,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func performCableTest() async throws -> Double {
         guard let conn = connection else {
-            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No connection"])
+            throw NSError(domain: "TBDisplaySenderService", code: -1, userInfo: [NSLocalizedDescriptionKey: TBDisplaySenderL10n.text("sender.error.no_connection", language)])
         }
 
         let totalBytes: Int64 = 20 * 1000 * 1000 * 1000
@@ -2256,6 +2300,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             && teardownReason != "sender_user_stop"
             && (connection != nil || isConnected || isStreaming)
         let connectionToClose = connection
+        TBLog.connection.notice("stop: reason=\(teardownReason, privacy: .public) connected=\(self.isConnected, privacy: .public) streaming=\(self.isStreaming, privacy: .public)")
         stopLoopbackAudio()
         captureRestartGeneration &+= 1
         isRestartingCaptureAfterWake = false
@@ -2530,15 +2575,6 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         send(packet)
     }
 
-    private func sendHeartbeat() {
-        heartbeatSequence += 1
-        guard let packet = TBMonitorProtocol.makeJSONPacket(
-            type: .heartbeat,
-            value: TBMonitorHeartbeat(sequence: heartbeatSequence)
-        ) else { return }
-        send(packet)
-    }
-
     private func sendTeardownAndClose(
         reason: String,
         over connection: NWConnection?,
@@ -2583,6 +2619,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     self.drainPackets()
                 }
                 if error != nil || isDone {
+                    let failure = error.map { $0 as NSError }
+                    TBLog.connection.notice("receive: ended eof=\(isDone, privacy: .public) domain=\(failure?.domain ?? "none", privacy: .public) code=\(failure?.code ?? 0, privacy: .public)")
                     if let error {
                         self.setStatus(.connectionClosed(error.localizedDescription))
                     } else if case .startingCapture = self.statusState {
@@ -2645,6 +2683,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             case .heartbeat:
                 break
             case .teardown:
+                TBLog.connection.notice("receive: Receiver requested teardown")
                 // Ended on purpose on the receiver (Esc or double-click on
                 // the iMac): keep alive must not bring the picture back.
                 endedByReceiver = true
@@ -3034,6 +3073,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         else { return }
 
         activeProfile = profile
+        // The connected peer is authoritative, including legacy profiles without this field.
+        receiverSupportsHEVCSoftwareDecodeHint = profile.supportsHEVCSoftwareDecode
         if let supportsHEVCDecode = profile.supportsHEVCDecode {
             receiverSupportsHEVCDecodeHint = supportsHEVCDecode
         }
@@ -3185,7 +3226,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 self.scheduleDesktopMirrorRecovery(for: self.session.displayID)
             }
 
-            self.setStatus(.captureStartedWaitingFirstFrame)
+            // The first frame may already have arrived while startCapture() was
+            // suspended (see the sessionAckSent reset above), so the status is
+            // already captureActive. Writing "waiting for the first frame" over it
+            // would stick for the whole stream: handleFirstEncodedFrame runs once.
+            if !self.sessionAckSent {
+                self.setStatus(.captureStartedWaitingFirstFrame)
+            }
             self.startFirstFrameWatchdog()
         }
     }
@@ -3351,6 +3398,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             delegate.onError = { [weak self] error in
                 Task { @MainActor [weak self] in
                     guard let self, self.pipeline === pipeline else { return }
+                    let failure = error as NSError
+                    TBLog.connection.error("capture: delegate stopped domain=\(failure.domain, privacy: .public) code=\(failure.code, privacy: .public)")
                     self.setStatus(.captureError(self.formattedCaptureErrorMessage(for: error)))
                     self.stop(resetStatusTo: nil)
                 }
@@ -4299,10 +4348,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     private func startHeartbeat() {
         heartbeatTimer?.invalidate()
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.sendHeartbeat()
-            }
+        guard let connection else { return }
+        // Capture this connection, not mutable session state or the main actor.
+        heartbeatTimer = TBHeartbeatTimer.scheduled { [weak connection] sequence in
+            guard let connection, let packet = TBMonitorProtocol.makeJSONPacket(
+                type: .heartbeat, value: TBMonitorHeartbeat(sequence: sequence)
+            ) else { return }
+            connection.send(content: packet, completion: .contentProcessed { _ in })
         }
     }
 
