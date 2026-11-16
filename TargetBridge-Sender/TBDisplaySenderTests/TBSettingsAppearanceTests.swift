@@ -1,4 +1,5 @@
 import AppKit
+import Metal
 import SwiftUI
 import XCTest
 @testable import TargetBridge
@@ -46,6 +47,12 @@ final class TBSettingsAppearanceTests: XCTestCase {
     }
 
     private func render<V: View>(_ content: V, scheme: ColorScheme) throws -> NSBitmapImageRep {
+        // Rendering aborts in Metal on virtual machines without a real GPU
+        // (GitHub's macOS runners: "Target device architecture is nil").
+        // The tests run on real Macs.
+        let gpu = MTLCreateSystemDefaultDevice()?.name ?? ""
+        try XCTSkipIf(gpu.isEmpty || gpu.localizedCaseInsensitiveContains("paravirtual"),
+                      "No real GPU (\(gpu.isEmpty ? "none" : gpu)); SwiftUI rendering unavailable")
         let renderer = ImageRenderer(content: content.frame(width: 128, height: 128)
             .environment(\.colorScheme, scheme))
         renderer.scale = 1
