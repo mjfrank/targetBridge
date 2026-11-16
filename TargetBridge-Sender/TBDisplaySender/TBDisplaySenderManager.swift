@@ -46,16 +46,6 @@ final class TBDisplaySenderService: ObservableObject {
     @Published private(set) var localInterfaces: [TBLocalLinkInterface] = []
     @Published private(set) var discoveredReceivers: [TBDiscoveredReceiver] = []
     @Published private(set) var addons: [TBAddonRecord] = []
-    /// Display profiles: editable one-click combinations of stream profile,
-    /// video compression and parallel connections (Settings).
-    @Published var displayProfiles: [TBDisplayProfile] =
-        TBDisplayProfile.decodeList(UserDefaults.standard.data(forKey: TBDisplaySenderService.displayProfilesKey))
-        ?? TBDisplayProfile.defaults {
-        didSet {
-            guard displayProfiles != oldValue else { return }
-            UserDefaults.standard.set(TBDisplayProfile.encodeList(displayProfiles), forKey: Self.displayProfilesKey)
-        }
-    }
     /// Changes whenever the app returns from System Settings so permission cards
     /// re-evaluate their live TCC state instead of showing a stale warning.
     @Published private(set) var privacyPermissionsRevision = 0
@@ -409,7 +399,6 @@ final class TBDisplaySenderService: ObservableObject {
 
     private static let persistedSessionsKey = "fd.tbdisplaysender.sessions.v1"
     private static let receiverDisplayProfilesKey = "fd.tbdisplaysender.receiverDisplayProfiles.v1"
-    static let displayProfilesKey = "fd.tbdisplaysender.displayProfiles.v1"
     private static let receiverCodecPreferencesKey = "fd.tbdisplaysender.receiverCodecPreferences.v1"
     /// Earlier builds persisted `false` when the audio addon had not finished
     /// loading. Repair that ambiguous state exactly once without making future
@@ -718,58 +707,21 @@ final class TBDisplaySenderService: ObservableObject {
         }
     }
 
-    /// Sets the session's stream profile, video compression and parallel
-    /// connections, and remembers the profile for this receiver.
     func applyDisplayProfile(_ profile: TBDisplayProfile, to session: TBDisplaySenderSession) {
         guard !session.isConnected, !session.isStreaming else { return }
 
-        session.capturePreset = profile.capturePreset
-        setCodecPreference(profile.effectiveCodecPreference, for: session)
-        session.parallelStreams = profile.effectiveParallelStreams
+        let settings = profile.settings
+        session.captureSource = settings.captureSource
+        session.capturePreset = settings.capturePreset
+        session.matchRenderToStream = settings.matchRenderToStream
+        if let audioEnabled = settings.audioEnabled {
+            session.audioEnabled = audioEnabled
+        }
 
         guard let receiverKey = receiverProfileKey(for: session) else { return }
         var profiles = persistedDisplayProfiles
-        profiles[receiverKey] = profile.id
+        profiles[receiverKey] = profile.rawValue
         UserDefaults.standard.set(profiles, forKey: Self.receiverDisplayProfilesKey)
-    }
-
-    // MARK: Display profile editor (Settings)
-
-    /// A new profile, starting from the given session's current settings
-    /// when there is one.
-    @discardableResult
-    func addDisplayProfile(from session: TBDisplaySenderSession? = nil) -> TBDisplayProfile {
-        let template = session ?? sessions.first
-        let profile = TBDisplayProfile(
-            name: TBDisplaySenderL10n.text("sender.display_profiles.new_name", language),
-            capturePreset: template?.capturePreset ?? .standard1440p,
-            codecPreference: template?.effectiveCodecPreference ?? .automatic,
-            parallelStreams: template?.parallelStreams ?? true
-        )
-        displayProfiles.append(profile)
-        return profile
-    }
-
-    func updateDisplayProfile(_ profile: TBDisplayProfile) {
-        guard let index = displayProfiles.firstIndex(where: { $0.id == profile.id }) else { return }
-        displayProfiles[index] = profile
-    }
-
-    func removeDisplayProfile(id: String) {
-        displayProfiles.removeAll { $0.id == id }
-    }
-
-    /// Moves a profile one place up (-1) or down (+1) in the list.
-    func moveDisplayProfile(id: String, by offset: Int) {
-        guard let index = displayProfiles.firstIndex(where: { $0.id == id }) else { return }
-        let target = index + offset
-        guard displayProfiles.indices.contains(target) else { return }
-        displayProfiles.swapAt(index, target)
-    }
-
-    /// Back to the built-in profiles; custom ones are removed.
-    func restoreDefaultDisplayProfiles() {
-        displayProfiles = TBDisplayProfile.defaults
     }
 
     private var persistedDisplayProfiles: [String: String] {
@@ -787,8 +739,8 @@ final class TBDisplaySenderService: ObservableObject {
 
     private func restoreDisplayProfile(for session: TBDisplaySenderSession) {
         guard let receiverKey = receiverProfileKey(for: session),
-              let profileID = persistedDisplayProfiles[receiverKey],
-              let profile = displayProfiles.first(where: { $0.id == profileID })
+              let rawValue = persistedDisplayProfiles[receiverKey],
+              let profile = TBDisplayProfile(rawValue: rawValue)
         else {
             return
         }
