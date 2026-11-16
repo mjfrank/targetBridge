@@ -30,21 +30,32 @@ Related reading:
 - [docs/QuickStart-IT.md](docs/QuickStart-IT.md)
 - [docs/QuickStart-ZH.md](docs/QuickStart-ZH.md)
 
-## Resolution, Frame Rate and Compression
+## Resolution, Frame Rate, Compression and Colour Depth
 
-Each session sets three things before it starts:
+Each session sets four things before it starts:
 
 - **Resolution**: Full HD (1920 × 1080), QHD (2560 × 1440), QHD+ (3200 × 1800),
   4K UHD (3840 × 2160), Retina 4K (4096 × 2304) or 5K (5120 × 2880).
 - **Frame rate**: 24, 25, 30, 48, 50 or 60 Hz. 48 Hz is recommended for 5K with
   HEVC.
-- **Video compression**: Automatic, H.264, HEVC, or one of the uncompressed and
-  lossless modes. With Automatic, the setting shows which codec it uses for the
-  chosen resolution and frame rate.
+- **Video compression** (the method): Automatic, H.264, HEVC, Uncompressed, LZ4
+  (lossless, changed rows) or DPCM (lossless, full frames). With Automatic, the
+  setting shows which codec it uses for the chosen resolution and frame rate.
+- **Colour depth**: 8-bit, 10-bit shown as 8-bit (dithered), or 10-bit.
+  Combinations a method can't do are greyed out: Automatic, H.264 and HEVC are
+  8-bit; DPCM has no dithered variant.
+
+| | 8-bit | 10-bit, shown as 8-bit | 10-bit |
+|---|---|---|---|
+| Automatic / H.264 / HEVC | ✓ | – | – |
+| Uncompressed | ✓ | ✓ | ✓ |
+| LZ4 (changed rows) | ✓ | ✓ | ✓ |
+| DPCM (full frames) | ✓ | – | ✓ |
 
 **Parallel connections** is always shown: off with Automatic (H.264 and HEVC
-use one connection), on and greyed out where the compression needs it (the
-10-bit changed-rows modes), and freely selectable otherwise.
+use one connection), on and greyed out where the compression needs it
+(Uncompressed and LZ4 at 10-bit, and LZ4 dithered), and freely selectable
+otherwise.
 
 The other encoder settings (keyframe spacing, peak-rate cap, capture queue,
 virtual display refresh) follow from resolution and frame rate with the same

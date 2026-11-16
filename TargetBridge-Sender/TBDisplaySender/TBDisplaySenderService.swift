@@ -367,27 +367,100 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     /// GPU and decoded on the Receiver's GPU (upstream PR #201). Falls back to
     /// `uncompressedFull10Bit` if the receiver cannot decode it.
     case losslessDPCM
+    /// 10-bit capture dithered to 8-bit NV12, without LZ4.
+    case uncompressedDithered
+    /// Full 10-bit RGB without LZ4.
+    case uncompressedTenBit
+    /// Lossless DPCM of 8-bit RGB captures.
+    case losslessDPCM8Bit
 
     var usesRawFrames: Bool {
         switch self {
-        case .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM: return true
+        case .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM,
+             .uncompressedDithered, .uncompressedTenBit, .losslessDPCM8Bit: return true
         case .automatic, .h264, .hevc: return false
         }
     }
 
     var compressesRawFrames: Bool {
         self == .uncompressedLZ4 || self == .uncompressedEnhanced || self == .uncompressedFull10Bit
-            || self == .losslessDPCM
+            || self == .losslessDPCM || self == .losslessDPCM8Bit
+    }
+
+    /// Sends whole frames as lossless DPCM (packet type 0x27).
+    var usesDPCM: Bool { self == .losslessDPCM || self == .losslessDPCM8Bit }
+
+    /// Full 10-bit RGB in the changed-rows modes.
+    var sendsFullTenBit: Bool { self == .uncompressedFull10Bit || self == .uncompressedTenBit }
+
+    /// Captured in 10-bit and dithered to 8-bit NV12 before sending.
+    var dithersTenBit: Bool { self == .uncompressedEnhanced || self == .uncompressedDithered }
+
+    /// The method and colour depth shown in the menus.
+    var method: TBCompressionMethod {
+        switch self {
+        case .automatic: return .automatic
+        case .h264: return .h264
+        case .hevc: return .hevc
+        case .uncompressed, .uncompressedDithered, .uncompressedTenBit: return .uncompressed
+        case .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit: return .lz4
+        case .losslessDPCM, .losslessDPCM8Bit: return .dpcm
+        }
+    }
+
+    var colorDepth: TBColorDepth {
+        switch self {
+        case .uncompressedDithered, .uncompressedEnhanced: return .tenBitDithered
+        case .uncompressedTenBit, .uncompressedFull10Bit, .losslessDPCM: return .tenBit
+        case .automatic, .h264, .hevc, .uncompressed, .uncompressedLZ4, .losslessDPCM8Bit: return .eightBit
+        }
+    }
+
+    /// The compression for a method and colour depth; nil where the method
+    /// can't carry that depth (H.264/HEVC/Automatic are 8-bit; DPCM has no
+    /// dithered variant).
+    static func make(method: TBCompressionMethod, depth: TBColorDepth) -> TBDisplayCodecPreference? {
+        switch (method, depth) {
+        case (.automatic, .eightBit): return .automatic
+        case (.h264, .eightBit): return .h264
+        case (.hevc, .eightBit): return .hevc
+        case (.uncompressed, .eightBit): return .uncompressed
+        case (.uncompressed, .tenBitDithered): return .uncompressedDithered
+        case (.uncompressed, .tenBit): return .uncompressedTenBit
+        case (.lz4, .eightBit): return .uncompressedLZ4
+        case (.lz4, .tenBitDithered): return .uncompressedEnhanced
+        case (.lz4, .tenBit): return .uncompressedFull10Bit
+        case (.dpcm, .eightBit): return .losslessDPCM8Bit
+        case (.dpcm, .tenBit): return .losslessDPCM
+        default: return nil
+        }
     }
 
     /// All uncompressed modes can spread frames over parallel connections
     /// (session setting "Parallel connections").
     var usesParallelStreams: Bool { usesRawFrames }
 
-    /// The 10-bit modes need parallel connections to keep up at 5K; choosing
-    /// them turns the session setting on.
-    var needsParallelStreams: Bool { self == .uncompressedEnhanced || self == .uncompressedFull10Bit }
+    /// The 10-bit changed-rows modes need parallel connections to keep up at
+    /// 5K; choosing them turns the session setting on.
+    var needsParallelStreams: Bool {
+        self == .uncompressedEnhanced || self == .uncompressedFull10Bit || self == .uncompressedTenBit
+    }
 
+    var id: String { rawValue }
+}
+
+/// The compression method, shown in the menu without the colour depth.
+enum TBCompressionMethod: String, CaseIterable, Identifiable {
+    case automatic, h264, hevc, uncompressed, lz4, dpcm
+    var id: String { rawValue }
+}
+
+/// Colour depth of the stream.
+enum TBColorDepth: String, CaseIterable, Identifiable {
+    case eightBit
+    /// Captured in 10-bit, sent and shown in 8-bit with a fine dither pattern.
+    case tenBitDithered
+    case tenBit
     var id: String { rawValue }
 }
 
@@ -698,10 +771,13 @@ final class TBDPCMFrameEncoder {
     private var gpu: OpaquePointer?
     private var cpuBuffer = Data()
     private let adaptiveColor: Bool
+    /// Packed 10-bit RGB ('l10r') captures; otherwise 8-bit BGRA.
+    private let tenBit: Bool
     var usesGPU: Bool { gpu != nil }
 
-    init(useGPU: Bool = true, adaptiveColor: Bool = false) {
+    init(useGPU: Bool = true, tenBit: Bool = true, adaptiveColor: Bool = false) {
         gpu = useGPU ? tb_dpcm_gpu_create() : nil
+        self.tenBit = tenBit
         self.adaptiveColor = adaptiveColor
     }
 
@@ -727,7 +803,9 @@ final class TBDPCMFrameEncoder {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
         let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_ARGB2101010LEPacked,
+        let expectedFormat = tenBit ? kCVPixelFormatType_ARGB2101010LEPacked : kCVPixelFormatType_32BGRA
+        let depthFlag: Int32 = tenBit ? 1 : 0
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == expectedFormat,
               !CVPixelBufferIsPlanar(pixelBuffer),
               width > 0, height > 0, width <= 5120, height <= 2880,
               stride >= width * 4, stride <= Int(Int32.max),
@@ -740,8 +818,8 @@ final class TBDPCMFrameEncoder {
         if let gpu {
             var blob: UnsafePointer<UInt8>?
             let count = adaptiveColor
-                ? tb_dpcm_gpu_encode_adaptive(gpu, base, Int32(stride), Int32(width), Int32(height), 1, 0, &blob)
-                : tb_dpcm_gpu_encode(gpu, base, Int32(stride), Int32(width), Int32(height), 1, 0, &blob)
+                ? tb_dpcm_gpu_encode_adaptive(gpu, base, Int32(stride), Int32(width), Int32(height), depthFlag, 0, &blob)
+                : tb_dpcm_gpu_encode(gpu, base, Int32(stride), Int32(width), Int32(height), depthFlag, 0, &blob)
             if count > 0, count < Int(TBMonitorProtocol.maxPacketLength), let blob {
                 return makeOwnedData(UnsafeBufferPointer(start: blob, count: count))
             }
@@ -756,10 +834,10 @@ final class TBDPCMFrameEncoder {
         }
         let count = cpuBuffer.withUnsafeMutableBytes { output in
             if adaptiveColor {
-                return tb_dpcm_encode_adaptive(base, Int32(stride), Int32(width), Int32(height), 1,
+                return tb_dpcm_encode_adaptive(base, Int32(stride), Int32(width), Int32(height), depthFlag,
                                                output.bindMemory(to: UInt8.self).baseAddress, capacity)
             }
-            return tb_dpcm_encode(base, Int32(stride), Int32(width), Int32(height), 1,
+            return tb_dpcm_encode(base, Int32(stride), Int32(width), Int32(height), depthFlag,
                                   output.bindMemory(to: UInt8.self).baseAddress, capacity)
         }
         guard count > 0 else { return nil }
@@ -791,6 +869,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private let tenBitConverter: TBTenBitConverter?
     /// Whole 10-bit frames as lossless DPCM (packet type 0x27).
     private let sendsDPCM: Bool
+    private let dpcmTenBit: Bool
     private let dpcmAdaptiveColor: Bool
     private var dpcmEncoder: TBDPCMFrameEncoder?
     private var loggedDPCMProblem = false
@@ -848,6 +927,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
          dataConnections: [NWConnection] = [],
          tenBitConverter: TBTenBitConverter? = nil,
          sendsDPCM: Bool = false,
+         dpcmTenBit: Bool = true,
          dpcmAdaptiveColor: Bool = false,
          colorSpace: TBVideoColorSpace? = nil,
          ackAlreadySent: Bool,
@@ -864,6 +944,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.dataConnections = usesRawNV12 && usesRawRegions ? dataConnections : []
         self.tenBitConverter = usesRawNV12 && usesRawRegions ? tenBitConverter : nil
         self.sendsDPCM = usesRawNV12 && sendsDPCM
+        self.dpcmTenBit = dpcmTenBit
         self.dpcmAdaptiveColor = self.sendsDPCM && dpcmAdaptiveColor
         self.colorSpace = colorSpace
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
@@ -1231,14 +1312,14 @@ private final class TBVideoPipeline: @unchecked Sendable {
             return
         }
         if dpcmEncoder == nil {
-            dpcmEncoder = TBDPCMFrameEncoder(adaptiveColor: dpcmAdaptiveColor)
+            dpcmEncoder = TBDPCMFrameEncoder(tenBit: dpcmTenBit, adaptiveColor: dpcmAdaptiveColor)
             TBLog.connection.info("dpcm: encoder on \(self.dpcmEncoder?.usesGPU == true ? "GPU" : "CPU", privacy: .public) adaptiveColor=\(self.dpcmAdaptiveColor, privacy: .public)")
         }
         guard let packet = dpcmEncoder?.encodePacket(pixelBuffer) else {
             droppedBeforeEncodeFrames += 1
             if !loggedDPCMProblem {
                 loggedDPCMProblem = true
-                TBLog.connection.error("dpcm: frame not encoded; expected packed 10-bit RGB (l10r) up to 5120x2880, got format=\(CVPixelBufferGetPixelFormatType(pixelBuffer), privacy: .public)")
+                TBLog.connection.error("dpcm: frame not encoded; expected packed \(self.dpcmTenBit ? "10-bit RGB (l10r)" : "8-bit BGRA", privacy: .public) up to 5120x2880, got format=\(CVPixelBufferGetPixelFormatType(pixelBuffer), privacy: .public)")
             }
             return
         }
@@ -2058,7 +2139,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         let preferredCodec: CMVideoCodecType
 
         switch preference {
-        case .automatic, .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM:
+        case .automatic, .uncompressed, .uncompressedLZ4, .uncompressedEnhanced, .uncompressedFull10Bit, .losslessDPCM,
+             .uncompressedDithered, .uncompressedTenBit, .losslessDPCM8Bit:
             preferredCodec = preset.codecType == kCMVideoCodecType_HEVC || hevcAvailable
                 ? kCMVideoCodecType_HEVC
                 : kCMVideoCodecType_H264
@@ -3411,14 +3493,19 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 codecDecision = resolvedDecision
             }
             let codecType = codecDecision.codecType
-            // Lossless DPCM: whole 10-bit frames, encoded and decoded on the
-            // GPUs (upstream PR #201). A receiver that cannot decode it gets
-            // the changed-rows 10-bit mode instead.
+            // Lossless DPCM: whole 8- or 10-bit frames, encoded and decoded on
+            // the GPUs (upstream PR #201). A receiver that cannot decode it
+            // gets the changed-rows LZ4 mode of the same depth instead.
             let sendsDPCM = usesRawNV12
-                && effectiveCodecPreference == .losslessDPCM
+                && effectiveCodecPreference.usesDPCM
                 && profile.supportsDPCM == true
-            let rowsPreference: TBDisplayCodecPreference =
-                effectiveCodecPreference == .losslessDPCM ? .uncompressedFull10Bit : effectiveCodecPreference
+            let dpcmTenBit = sendsDPCM && effectiveCodecPreference == .losslessDPCM
+            let rowsPreference: TBDisplayCodecPreference
+            switch effectiveCodecPreference {
+            case .losslessDPCM: rowsPreference = .uncompressedFull10Bit
+            case .losslessDPCM8Bit: rowsPreference = .uncompressedLZ4
+            default: rowsPreference = effectiveCodecPreference
+            }
             // Changed rows only, when the receiver understands it. RAW_REGIONS=0
             // turns it off for comparisons on real hardware.
             let usesRawRegions = usesRawNV12 && !sendsDPCM
@@ -3430,22 +3517,21 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             // Full 10-bit RGB needs a receiver that can show it; otherwise the
             // 10-bit capture is dithered to 8-bit NV12 like "enhanced".
             let sendsRawRGB10 = usesRawRegions
-                && rowsPreference == .uncompressedFull10Bit
+                && rowsPreference.sendsFullTenBit
                 && profile.supportsRawRGB10 == true
             let tenBitConverter: TBTenBitConverter? =
                 usesRawRegions && !sendsRawRGB10
-                && (rowsPreference == .uncompressedEnhanced
-                    || rowsPreference == .uncompressedFull10Bit)
+                && (rowsPreference.dithersTenBit || rowsPreference.sendsFullTenBit)
                 ? TBTenBitConverter() : nil
-            let capturesTenBit = sendsDPCM || sendsRawRGB10 || tenBitConverter != nil
+            let capturesTenBit = dpcmTenBit || sendsRawRGB10 || tenBitConverter != nil
+            let capturesBGRA = sendsDPCM && !dpcmTenBit
             let dataStreams = usesRawRegions && rowsPreference.usesParallelStreams && effectiveParallelStreams
                 ? await openDataStreams(for: profile)
                 : []
             let codecName: String
             if sendsDPCM {
-                codecName = profile.supportsDPCMAdaptiveColor == true
-                    ? "DPCM RGB 10-bit, lossless, adaptive colour"
-                    : "DPCM RGB 10-bit, lossless"
+                codecName = "DPCM RGB \(dpcmTenBit ? 10 : 8)-bit, lossless"
+                    + (profile.supportsDPCMAdaptiveColor == true ? ", adaptive colour" : "")
             } else if usesRawNV12 {
                 var parts = [sendsRawRGB10 ? "RGB 10-bit RAW" : "NV12 RAW"]
                 if compressesRawRegions { parts.append("LZ4") }
@@ -3481,6 +3567,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 dataConnections: dataStreams,
                 tenBitConverter: tenBitConverter,
                 sendsDPCM: sendsDPCM,
+                dpcmTenBit: dpcmTenBit,
                 dpcmAdaptiveColor: sendsDPCM && profile.supportsDPCMAdaptiveColor == true,
                 colorSpace: activeColorSpace,
                 ackAlreadySent: sessionAckSent,
@@ -3525,7 +3612,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             configuration.queueDepth = preset.queueDepth
             configuration.pixelFormat = capturesTenBit
                 ? TBTenBitConverter.sourcePixelFormat
-                : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                : capturesBGRA ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             configuration.shouldBeOpaque = true
             if let colorSpace = activeColorSpace {
                 // Capture in the session's colour space with the BT.709 matrix

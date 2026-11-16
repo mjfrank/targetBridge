@@ -754,19 +754,52 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         Picker(
                             TBDisplaySenderL10n.videoCompression(service.language),
                             selection: Binding(
-                                get: { session.codecPreference },
-                                set: { service.setCodecPreference($0, for: session) }
+                                get: { session.codecPreference.method },
+                                set: { method in
+                                    // Keep the colour depth where the method has it, else 8-bit.
+                                    let depth = session.codecPreference.colorDepth
+                                    let preference = TBDisplayCodecPreference.make(method: method, depth: depth)
+                                        ?? TBDisplayCodecPreference.make(method: method, depth: .eightBit)
+                                        ?? .automatic
+                                    service.setCodecPreference(preference, for: session)
+                                }
                             )
                         ) {
-                            ForEach(TBDisplayCodecPreference.allCases) { preference in
-                                Text(TBDisplaySenderL10n.codecPreferenceTitle(
-                                    preference,
-                                    language: service.language
-                                ))
-                                .tag(preference)
+                            ForEach(TBCompressionMethod.allCases) { method in
+                                Text(TBDisplaySenderL10n.text("sender.method.\(method.rawValue)", service.language))
+                                    .tag(method)
                             }
                         }
                         .pickerStyle(.menu)
+                        .disabled(session.isConnected || session.isStreaming)
+                    }
+
+                    // Depths the method can't carry are shown greyed out.
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.depth.label", service.language),
+                        details: TBDisplaySenderL10n.text("sender.depth.hint", service.language)
+                    ) {
+                        Menu {
+                            ForEach(TBColorDepth.allCases) { depth in
+                                let preference = TBDisplayCodecPreference.make(
+                                    method: session.codecPreference.method, depth: depth)
+                                Button {
+                                    if let preference { service.setCodecPreference(preference, for: session) }
+                                } label: {
+                                    if depth == session.codecPreference.colorDepth {
+                                        Label(TBDisplaySenderL10n.text("sender.depth.\(depth.rawValue)", service.language),
+                                              systemImage: "checkmark")
+                                    } else {
+                                        Text(TBDisplaySenderL10n.text("sender.depth.\(depth.rawValue)", service.language))
+                                    }
+                                }
+                                .disabled(preference == nil)
+                            }
+                        } label: {
+                            Text(TBDisplaySenderL10n.text("sender.depth.\(session.codecPreference.colorDepth.rawValue)",
+                                                          service.language))
+                        }
+                        .fixedSize()
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
