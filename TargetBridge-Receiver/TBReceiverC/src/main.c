@@ -21,6 +21,8 @@
 #include "receiver_profile.h"
 #include "raw_regions.h"
 #include "version_check.h"
+#include "color_space.h"
+#include "tb_metal_view.h"   /* tb_screen_supports_display_p3 */
 #include "proto.h"
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
@@ -127,6 +129,8 @@ struct app {
     int      video_renderer;   /* enum tb_disp_renderer, applies at start */
     int      display_sync;     /* Metal: raw modes wait for the refresh */
     int      perf_show_stats;
+    int      perf_zero_copy;   /* Metal: decoded frames shown without a copy (experimental) */
+    int      color_space;      /* enum tb_color_space, as announced by the Sender */
     /* Changed-rows raw frames: the receiver's copy of the picture, and the
      * rows patched since the last draw (drawn once per loop with
      * "draw only the newest frame"). */
@@ -149,6 +153,8 @@ struct app {
     uint64_t stats_draw_us_total;
     uint64_t stats_draw_us_max;
     uint64_t stats_draw_count;
+    uint64_t stats_zero_copy_frames; /* decoded frames shown without a copy */
+    uint64_t stats_copy_frames;      /* decoded frames copied into textures */
     uint64_t stats_bytes;
     int      show_window_at_start;
     int      window_requested;
@@ -1060,10 +1066,8 @@ static void tb_receiver_update_version_notice(struct app *a, const char *sender_
 
 /* ---- Callbacks: decoder → display ------------------------------------ */
 
-static void on_frame(const uint8_t *y, int y_stride,
-                     const uint8_t *uv, int uv_stride,
-                     int w, int h, void *ud) {
-    struct app *a = (struct app *)ud;
+/* Status texts for a picture of w x h that is being shown. */
+static void note_video_frame(struct app *a, int w, int h) {
     a->have_video_frame = 1;
     tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.stream_active");
     {
@@ -1077,8 +1081,9 @@ static void on_frame(const uint8_t *y, int y_stride,
         snprintf(height_text, sizeof(height_text), "%d", h);
         tb_format_i18n(a->mode_text, sizeof(a->mode_text), "receiver.mode.receiving", pairs, 2);
     }
-    const uint64_t draw_start = now_us();
-    tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
+}
+
+static void note_draw_time(struct app *a, uint64_t draw_start) {
     const uint64_t draw_us = now_us() - draw_start;
     a->stats_draw_us_total += draw_us;
     if (draw_us > a->stats_draw_us_max) a->stats_draw_us_max = draw_us;
@@ -1086,8 +1091,29 @@ static void on_frame(const uint8_t *y, int y_stride,
     a->frames++;
 }
 
-/* Uploads and draws one decoded frame. */
+static void on_frame(const uint8_t *y, int y_stride,
+                     const uint8_t *uv, int uv_stride,
+                     int w, int h, void *ud) {
+    struct app *a = (struct app *)ud;
+    note_video_frame(a, w, h);
+    const uint64_t draw_start = now_us();
+    tb_disp_render_nv12(a->disp, y, y_stride, uv, uv_stride, w, h);
+    note_draw_time(a, draw_start);
+}
+
+/* Draws one decoded frame: without a copy when "Zero-copy" is on and the
+ * frame allows it, otherwise uploaded into textures. */
 static void present_pixbuf(struct app *a, CVPixelBufferRef pb) {
+    if (a->perf_zero_copy) {
+        const uint64_t draw_start = now_us();
+        if (tb_disp_render_pixbuf(a->disp, pb) == 0) {
+            note_video_frame(a, (int)CVPixelBufferGetWidth(pb), (int)CVPixelBufferGetHeight(pb));
+            note_draw_time(a, draw_start);
+            a->stats_zero_copy_frames++;
+            return;
+        }
+    }
+    a->stats_copy_frames++;
     if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) != 0) return;
     const uint8_t *y  = (const uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
     size_t         ys =                  CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
@@ -1538,6 +1564,18 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
     case TB_PKT_CREATE_SESSION_ACK:
         a->session_active = 1;
         fprintf(stderr, "[main] sender session ack: %.*s\n", (int)len, (const char *)payload);
+        {
+            /* A Sender that labels its colour space (experimental) names it
+             * here, before the first frame; older Senders leave the layer
+             * untagged as before. */
+            char color_space[32] = "";
+            extract_json_string_field(payload, len, "\"colorSpace\"", color_space, sizeof(color_space));
+            a->color_space = tb_disp_color_managed(a->disp)
+                ? tb_color_space_from_name(color_space[0] ? color_space : NULL)
+                : TB_COLOR_SPACE_UNMANAGED;
+            tb_disp_set_color_space(a->disp, a->color_space);
+            fprintf(stderr, "[main] video colour space: %s\n", tb_color_space_title(a->color_space));
+        }
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.session_accepted_waiting_frames");
         break;
     case TB_PKT_PARAM_SETS:
@@ -2364,7 +2402,7 @@ static void send_receiver_info(struct app *a) {
     }
     escaped_name[out] = '\0';
 
-    char json[1024];
+    char json[1536];
     int json_len = snprintf(
         json,
         sizeof(json),
@@ -2373,7 +2411,8 @@ static void send_receiver_info(struct app *a) {
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
         "\"supportsHEVCDecode\":%s,\"supportsHEVCSoftwareDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":%s,"
         "\"appVersion\":\"" TB_RECEIVER_VERSION "\",\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
-        "\"supportsNightShift\":%s,\"supportsTrueTone\":%s}",
+        "\"supportsNightShift\":%s,\"supportsTrueTone\":%s,"
+        "\"supportsColorSpaceTags\":%s,\"panelColorSpace\":\"%s\"}",
         escaped_name,
         profile.panel_w,
         profile.panel_h,
@@ -2392,7 +2431,10 @@ static void send_receiver_info(struct app *a) {
         tb_receiver_input_monitoring_trusted() ? "true" : "false",
         tb_receiver_accessibility_trusted() ? "true" : "false",
         tb_night_shift_supported() ? "true" : "false",
-        tb_true_tone_supported() ? "true" : "false");
+        tb_true_tone_supported() ? "true" : "false",
+        /* Colour management needs the TargetBridge Metal renderer. */
+        tb_disp_color_managed(a->disp) ? "true" : "false",
+        tb_color_space_panel_name(tb_screen_supports_display_p3()));
     if (json_len <= 0 || (size_t)json_len >= sizeof(json)) return;
 
     const size_t packet_len = 4 + 1 + (size_t)json_len;
@@ -2446,6 +2488,8 @@ static void close_client(struct app *a) {
     a->window_requested = !a->background_mode;
     tb_receiver_reset_pending_raw(a);
     tb_disp_reset_video(a->disp);
+    a->color_space = TB_COLOR_SPACE_UNMANAGED;
+    tb_disp_set_color_space(a->disp, a->color_space);
     tb_raw_frame_free(&a->raw_frame);
     close_data_streams(a);
     a->stream_token[0] = '\0';
@@ -2614,6 +2658,7 @@ int main(int argc, char **argv) {
     }
     a.display_sync = tb_pref_get("metalDisplaySync", 0);
     a.perf_show_stats = tb_pref_get("perfShowStats", 0);
+    a.perf_zero_copy = tb_pref_get("metalZeroCopy", 0);
     if (a.signin_mode) a.perf_show_stats = 0;   /* never on the sign-in screen */
     a.disp = tb_disp_create(fullscreen, !a.window_requested, a.video_renderer);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
@@ -2738,8 +2783,14 @@ int main(int argc, char **argv) {
             tb_pref_set("perfShowStats", a.perf_show_stats);
             if (!a.perf_show_stats) tb_disp_set_stats_text(a.disp, NULL);
         }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_ZERO_COPY) {
+            /* Takes effect with the next decoded frame. */
+            a.perf_zero_copy = !a.perf_zero_copy;
+            tb_pref_set("metalZeroCopy", a.perf_zero_copy);
+        }
         tb_background_ui_set_performance(a.perf_newest_frame, a.perf_wake_on_data,
-                                         a.video_renderer, a.display_sync, a.perf_show_stats);
+                                         a.video_renderer, a.display_sync, a.perf_show_stats,
+                                         a.perf_zero_copy);
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
             a.show_window_at_start = !a.show_window_at_start;
             tb_show_window_at_start_save(a.show_window_at_start);
@@ -2992,8 +3043,15 @@ int main(int argc, char **argv) {
                         (unsigned long long)df, (unsigned long long)dd,
                         (unsigned long long)ds);
             }
-            char stats[256];
+            char stats[384];
             char changed[64] = "";
+            char video_path[64] = "";
+            /* Decoded video: how it reached the screen, and its colour space. */
+            if (a.stats_zero_copy_frames || a.stats_copy_frames) {
+                snprintf(video_path, sizeof(video_path), " | %s",
+                         a.stats_copy_frames == 0 ? "zero-copy"
+                             : a.stats_zero_copy_frames == 0 ? "copy" : "zero-copy + copy");
+            }
             const double draw_avg_ms = a.stats_draw_count
                 ? (double)a.stats_draw_us_total / 1000.0 / (double)a.stats_draw_count : 0.0;
             if (a.stats_region_height > 0) {
@@ -3004,13 +3062,15 @@ int main(int argc, char **argv) {
                              : tb_disp_native_rgb10(a.disp) ? " | 10-bit RGB" : " | 10-bit RGB shown as 8-bit");
             }
             snprintf(stats, sizeof(stats),
-                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s%s | %s",
+                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s%s%s | %s | %s",
                      (unsigned long long)df,
                      (unsigned long long)a.stats_skipped,
                      draw_avg_ms,
                      (double)a.stats_draw_us_max / 1000.0,
                      (double)a.stats_bytes * 8.0 / 1000000.0,
                      changed,
+                     video_path,
+                     tb_color_space_title(a.color_space),
                      tb_disp_renderer_name(a.disp));
             if (df > 0) fprintf(stderr, "[main] %s\n", stats);
             tb_disp_set_stats_text(a.disp, a.perf_show_stats && a.client_fd >= 0 ? stats : NULL);
@@ -3018,6 +3078,8 @@ int main(int argc, char **argv) {
             a.stats_draw_us_total = 0;
             a.stats_draw_us_max = 0;
             a.stats_draw_count = 0;
+            a.stats_zero_copy_frames = 0;
+            a.stats_copy_frames = 0;
             a.stats_bytes = 0;
             a.stats_region_rows = 0;
             a.stats_region_height = 0;

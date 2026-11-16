@@ -506,6 +506,95 @@ struct TBDisplayCodecDecision: Equatable {
     let usedFallback: Bool
 }
 
+/// Colour space of the virtual display and the video, chosen per session
+/// (experimental). Automatic follows the Receiver's panel.
+enum TBVideoColorSpacePreference: String, CaseIterable, Identifiable, Codable {
+    case automatic
+    case sRGB
+    case displayP3
+
+    var id: String { rawValue }
+}
+
+/// The colour space a session actually uses. The virtual display gets its
+/// primaries, capture converts into it, the encoder tags the video with it and
+/// the session ack announces it to the Receiver, which tags its Metal layer.
+enum TBVideoColorSpace: String, Equatable {
+    /// Wire names: see color_space.h in the Receiver.
+    case sRGB = "srgb"
+    case displayP3 = "displayP3"
+
+    struct Chromaticities: Equatable, Sendable {
+        let white: CGPoint
+        let red: CGPoint
+        let green: CGPoint
+        let blue: CGPoint
+    }
+
+    /// CIE 1931 xy chromaticities for the virtual display (D65 white point).
+    var chromaticities: Chromaticities {
+        switch self {
+        case .sRGB:
+            return Chromaticities(white: CGPoint(x: 0.3127, y: 0.3290),
+                                  red: CGPoint(x: 0.64, y: 0.33),
+                                  green: CGPoint(x: 0.30, y: 0.60),
+                                  blue: CGPoint(x: 0.15, y: 0.06))
+        case .displayP3:
+            return Chromaticities(white: CGPoint(x: 0.3127, y: 0.3290),
+                                  red: CGPoint(x: 0.680, y: 0.320),
+                                  green: CGPoint(x: 0.265, y: 0.690),
+                                  blue: CGPoint(x: 0.150, y: 0.060))
+        }
+    }
+
+    /// What ScreenCaptureKit and CGDisplayStream convert the capture into.
+    var cgColorSpaceName: CFString {
+        switch self {
+        case .sRGB: return CGColorSpace.sRGB
+        case .displayP3: return CGColorSpace.displayP3
+        }
+    }
+
+    /// Colour primaries tag for the H.264/HEVC stream.
+    var videoColorPrimaries: CFString {
+        switch self {
+        case .sRGB: return kCVImageBufferColorPrimaries_ITU_R_709_2
+        case .displayP3: return kCVImageBufferColorPrimaries_P3_D65
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .sRGB: return "sRGB"
+        case .displayP3: return "Display P3"
+        }
+    }
+
+    /// nil: the Receiver cannot colour-manage (older Receiver or an SDL
+    /// renderer). The session then stays as before: a virtual display with
+    /// the iMac's wide-gamut primaries and unlabelled video.
+    static func resolve(preference: TBVideoColorSpacePreference,
+                        receiverSupportsTags: Bool,
+                        receiverPanelColorSpace: String?) -> TBVideoColorSpace? {
+        guard receiverSupportsTags else { return nil }
+        switch preference {
+        case .automatic:
+            return receiverPanelColorSpace == TBVideoColorSpace.displayP3.rawValue ? .displayP3 : .sRGB
+        case .sRGB:
+            return .sRGB
+        case .displayP3:
+            return .displayP3
+        }
+    }
+
+    static func resolve(preference: TBVideoColorSpacePreference,
+                        profile: TBMonitorDisplayProfile) -> TBVideoColorSpace? {
+        resolve(preference: preference,
+                receiverSupportsTags: profile.supportsColorSpaceTags == true,
+                receiverPanelColorSpace: profile.panelColorSpace)
+    }
+}
+
 enum TBDisplayCaptureSource: String, CaseIterable, Identifiable {
     case desktopMirror
     case extendedDesktop
@@ -580,11 +669,17 @@ private final class TBDirectDisplayStreamCapture {
     }
 
     func start(displayID: CGDirectDisplayID, preset: TBDisplayCapturePreset, showCursor: Bool) -> Bool {
-        let properties: NSDictionary = [
+        let mutableProperties = NSMutableDictionary(dictionary: [
             CGDisplayStream.showCursor: showCursor,
             CGDisplayStream.queueDepth: preset.queueDepth,
             CGDisplayStream.minimumFrameTime: 1.0 / Double(preset.expectedFrameRate)
-        ]
+        ])
+        if let colorSpace = pipeline.colorSpace,
+           let space = CGColorSpace(name: colorSpace.cgColorSpaceName) {
+            // Convert into the session's colour space, as ScreenCaptureKit does.
+            mutableProperties[CGDisplayStream.colorSpace] = space
+        }
+        let properties: NSDictionary = mutableProperties
 
         let displayStream = CGDisplayStream(
             dispatchQueueDisplay: displayID,
@@ -724,6 +819,9 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private let dataConnections: [NWConnection]
     /// Converts 10-bit captures to dithered 8-bit NV12; nil captures NV12 directly.
     private let tenBitConverter: TBTenBitConverter?
+    /// Colour space the session is labelled with; nil leaves the video
+    /// unlabelled, as before (older Receiver or SDL renderer).
+    let colorSpace: TBVideoColorSpace?
     private let onFirstFrame: @Sendable () -> Void
 
     // Confined to `queue`.
@@ -774,6 +872,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
          sendsRawRGB10: Bool = false,
          dataConnections: [NWConnection] = [],
          tenBitConverter: TBTenBitConverter? = nil,
+         colorSpace: TBVideoColorSpace? = nil,
          ackAlreadySent: Bool,
          onFirstFrame: @escaping @Sendable () -> Void) {
         self.preset = preset
@@ -787,6 +886,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.sendsRawRGB10 = usesRawNV12 && usesRawRegions && sendsRawRGB10
         self.dataConnections = usesRawNV12 && usesRawRegions ? dataConnections : []
         self.tenBitConverter = usesRawNV12 && usesRawRegions ? tenBitConverter : nil
+        self.colorSpace = colorSpace
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
         self.ackSent = ackAlreadySent
         self.onFirstFrame = onFirstFrame
@@ -926,6 +1026,13 @@ private final class TBVideoPipeline: @unchecked Sendable {
         if preset.prioritizeSpeed {
             VTSessionSetProperty(session, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
         }
+        if let colorSpace {
+            // Label the stream like the capture (BT.709 matrix and transfer,
+            // the session's primaries), so every decoder knows the colours.
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ColorPrimaries, value: colorSpace.videoColorPrimaries)
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_TransferFunction, value: kCVImageBufferTransferFunction_ITU_R_709_2)
+            VTSessionSetProperty(session, key: kVTCompressionPropertyKey_YCbCrMatrix, value: kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+        }
         VTCompressionSessionPrepareToEncodeFrames(session)
         vtEncoder = session
     }
@@ -1042,12 +1149,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
 
         if !ackSent {
             ackSent = true
-            let ack = TBMonitorCreateSessionAck(
-                accepted: true,
-                displayName: displayName,
-                displayID: displayID
-            )
-            if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: ack) {
+            if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: makeSessionAck()) {
                 connection.send(content: packet, completion: .contentProcessed({ _ in }))
             }
             onFirstFrame()
@@ -1110,12 +1212,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
         // Send the session ack on the first frame, mirroring the encoded path.
         if !ackSent {
             ackSent = true
-            let ack = TBMonitorCreateSessionAck(
-                accepted: true,
-                displayName: displayName,
-                displayID: displayID
-            )
-            if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: ack) {
+            if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: makeSessionAck()) {
                 connection.send(content: packet, completion: .contentProcessed({ _ in }))
             }
             onFirstFrame()
@@ -1257,15 +1354,20 @@ private final class TBVideoPipeline: @unchecked Sendable {
         lock.lock(); _sentFrames += 1; lock.unlock()
     }
 
+    /// Sent once before the first frame; announces the colour space too.
+    private func makeSessionAck() -> TBMonitorCreateSessionAck {
+        TBMonitorCreateSessionAck(
+            accepted: true,
+            displayName: displayName,
+            displayID: displayID,
+            colorSpace: colorSpace?.rawValue
+        )
+    }
+
     private func sendSessionAckIfNeeded() {
         guard !ackSent else { return }
         ackSent = true
-        let ack = TBMonitorCreateSessionAck(
-            accepted: true,
-            displayName: displayName,
-            displayID: displayID
-        )
-        if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: ack) {
+        if let packet = TBMonitorProtocol.makeJSONPacket(type: .createSessionAck, value: makeSessionAck()) {
             connection.send(content: packet, completion: .contentProcessed({ _ in }))
         }
         onFirstFrame()
@@ -1707,6 +1809,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
 
     /// Uncompressed modes: spread each frame over up to 4 extra connections.
     @Published var parallelStreams: Bool = true
+    /// Colour space of the virtual display and video (experimental).
+    @Published var colorSpacePreference: TBVideoColorSpacePreference = .automatic
+    /// What the running session uses; nil while not streaming or when the
+    /// Receiver cannot colour-manage (the video is then unlabelled).
+    @Published private(set) var activeColorSpace: TBVideoColorSpace?
+    /// Whether the connected Receiver can colour-manage; nil before a profile.
+    @Published private(set) var receiverSupportsColorSpaceTags: Bool?
 
     @Published var codecPreference: TBDisplayCodecPreference = .automatic {
         didSet {
@@ -2334,6 +2443,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         endCaptureActivity()
         pipeline?.stop()
         pipeline = nil
+        activeColorSpace = nil
         for dataConnection in dataConnections {
             dataConnection.stateUpdateHandler = nil
             dataConnection.cancel()
@@ -3154,13 +3264,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                     profile.panelWidth, profile.panelHeight
                 )
             }
+            let colorSpace = TBVideoColorSpace.resolve(preference: self.colorSpacePreference, profile: profile)
+            self.activeColorSpace = colorSpace
+            self.receiverSupportsColorSpaceTags = profile.supportsColorSpaceTags == true
+            TBLog.connection.info(
+                "colour: preference=\(self.colorSpacePreference.rawValue, privacy: .public) receiverTags=\(profile.supportsColorSpaceTags == true, privacy: .public) panel=\(profile.panelColorSpace ?? "unknown", privacy: .public) active=\(colorSpace?.rawValue ?? "unlabelled", privacy: .public)"
+            )
             guard self.session.create(
                 from: profile,
                 refreshRate: self.capturePreset.virtualDisplayRefreshRate,
                 modeOverride: modeOverride,
                 identity: self.captureSource.virtualDisplayIdentity(receiverKey: receiverKey),
                 displayName: self.macOSDisplayName,
-                receiverKey: receiverKey
+                receiverKey: receiverKey,
+                colorSpace: colorSpace
             ) else {
                 self.setStatus(.virtualDisplayCreationFailed)
                 self.stop(resetStatusTo: nil)
@@ -3323,6 +3440,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 sendsRawRGB10: sendsRawRGB10,
                 dataConnections: dataStreams,
                 tenBitConverter: tenBitConverter,
+                colorSpace: activeColorSpace,
                 ackAlreadySent: sessionAckSent,
                 onFirstFrame: { [weak self] in
                     Task { @MainActor in self?.handleFirstEncodedFrame() }
@@ -3367,6 +3485,12 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 ? TBTenBitConverter.sourcePixelFormat
                 : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
             configuration.shouldBeOpaque = true
+            if let colorSpace = activeColorSpace {
+                // Capture in the session's colour space with the BT.709 matrix
+                // the Receiver's shader uses.
+                configuration.colorSpaceName = colorSpace.cgColorSpaceName
+                configuration.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+            }
             configuration.showsCursor = !usesCursorOverlay
             configuration.scalesToFit = true
             configuration.captureResolution = preset.captureResolution

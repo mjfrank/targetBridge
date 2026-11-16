@@ -1425,6 +1425,25 @@ void tb_disp_render_nv12(struct tb_display *d,
     tb_disp_render_current(d);
 }
 
+int tb_disp_render_pixbuf(struct tb_display *d, void *cv_pixel_buffer) {
+    if (!d || !d->metal_view || !cv_pixel_buffer) return -1;
+    tb_disp_set_connection_state(d, 1);
+    /* Like tb_disp_render_nv12: decoded video never waits for the refresh. */
+    tb_disp_use_view(d, 1, 0, 0);
+    if (tb_metal_view_show_pixbuf(d->metal_view, cv_pixel_buffer) != 0) return -1;
+    d->last_video_frame_time = SDL_GetTicks();
+    tb_disp_render_current(d);
+    return 0;
+}
+
+int tb_disp_color_managed(struct tb_display *d) {
+    return d && d->metal_view ? 1 : 0;
+}
+
+void tb_disp_set_color_space(struct tb_display *d, int color_space) {
+    if (d) tb_metal_view_set_color_space(d->metal_view, color_space);
+}
+
 void tb_disp_render_nv12_rows(struct tb_display *d,
                               const uint8_t *y, size_t y_capacity,
                               const uint8_t *uv, size_t uv_capacity,

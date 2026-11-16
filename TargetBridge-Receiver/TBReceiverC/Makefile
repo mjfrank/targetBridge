@@ -51,7 +51,7 @@ $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -fobjc-arc -c -o $@ $<
 
 clean:
-	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_monitor_shield test_parser_yield test_connection_log test_receive_buffer
+	rm -f $(OBJ) $(BIN) $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_monitor_shield test_parser_yield test_connection_log test_receive_buffer test_color_space
 
 # Unit tests for the packet parser. net.c is pure POSIX, so this needs no
 # ffmpeg/SDL/pkgconf — it runs anywhere, including CI, with no hardware.
@@ -96,10 +96,13 @@ test_parser_yield: tests/test_parser_yield.c src/net.c src/net.h src/proto.h
 test_connection_log: tests/test_connection_log.c src/connection_log.c src/connection_log.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_connection_log.c src/connection_log.c -o $@
 
+test_color_space: tests/test_color_space.c src/color_space.h
+	$(CC) $(TEST_CFLAGS) -Isrc tests/test_color_space.c -o $@
+
 test_receive_buffer: tests/test_receive_buffer.c src/net.c src/net.h src/proto.h
 	$(CC) $(TEST_CFLAGS) -Isrc tests/test_receive_buffer.c src/net.c $(TEST_LDFLAGS) -o $@
 
-test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_parser_yield test_connection_log test_receive_buffer
+test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEIVER_PROFILE_BIN) $(TEST_RAW_REGIONS_BIN) $(TEST_VERSION_CHECK_BIN) test_status_layout test_parser_yield test_connection_log test_receive_buffer test_color_space
 	./$(TEST_BIN)
 	./$(TEST_INPUT_QUEUE_BIN)
 	./$(TEST_IDLE_WATCHDOG_BIN)
@@ -110,6 +113,7 @@ test: $(TEST_BIN) $(TEST_INPUT_QUEUE_BIN) $(TEST_IDLE_WATCHDOG_BIN) $(TEST_RECEI
 	./test_parser_yield
 	./test_connection_log
 	./test_receive_buffer
+	./test_color_space
 
 # AppKit lifecycle coverage requires a logged-in macOS GUI session.
 test_monitor_shield: tests/test_monitor_shield.m src/tb_gesture_bridge.m src/tb_gesture_bridge.h src/tb_signin_mode.m

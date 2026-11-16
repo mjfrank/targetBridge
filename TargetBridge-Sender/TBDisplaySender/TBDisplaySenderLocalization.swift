@@ -561,6 +561,35 @@ enum TBDisplaySenderL10n {
         text("sender.parallel_streams.hint", language)
     }
 
+    static func colorSpace(_ language: TBDisplaySenderLanguage) -> String {
+        text("sender.color_space.title", language)
+    }
+
+    static func colorSpacePreferenceTitle(_ preference: TBVideoColorSpacePreference,
+                                          language: TBDisplaySenderLanguage) -> String {
+        switch preference {
+        case .automatic: return text("sender.color_space.automatic", language)
+        case .sRGB: return text("sender.color_space.srgb", language)
+        case .displayP3: return text("sender.color_space.display_p3", language)
+        }
+    }
+
+    /// The hint, plus what the running session uses.
+    static func colorSpaceDetails(active: TBVideoColorSpace?,
+                                  receiverSupportsTags: Bool?,
+                                  streaming: Bool,
+                                  language: TBDisplaySenderLanguage) -> String {
+        let hint = text("sender.color_space.hint", language)
+        guard streaming else { return hint }
+        if let active {
+            return hint + " " + text("sender.color_space.active", language, ["space": active.title])
+        }
+        if receiverSupportsTags == false {
+            return hint + " " + text("sender.color_space.unlabelled", language)
+        }
+        return hint
+    }
+
     static func codecUnavailable(_ language: TBDisplaySenderLanguage) -> String {
         text("sender.codec.unavailable", language)
     }

@@ -7,6 +7,11 @@
  *     CbCr texture, converted to RGB (BT.709, video range) in a shader.
  *   - 10-bit RGB (full colour): a 10-bit (BGR10A2) texture on a 10-bit
  *     drawable, so it is shown in 10 bits; SDL2 has no 10-bit textures.
+ * Decoded H.264/HEVC frames can also be shown without any copy: the
+ * decoder's IOSurface-backed picture is used as the texture itself
+ * ("zero-copy", experimental, see tb_metal_view_show_pixbuf).
+ * The layer can be colour-managed: tagged sRGB or Display P3 as the Sender
+ * announces, so macOS converts the picture for the panel.
  * Changed rows of the uncompressed modes are copied by the GPU straight from
  * the Receiver's page-aligned frame memory (no CPU copy or conversion).
  * The picture is drawn into SDL's own render pass, so SDL then draws the
@@ -19,6 +24,7 @@
 #define TB_METAL_VIEW_H
 
 #include <SDL.h>
+#include "color_space.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -48,6 +54,20 @@ int  tb_metal_view_upload_nv12_rows(struct tb_metal_view *v,
 int  tb_metal_view_upload_rgb10(struct tb_metal_view *v,
                                 const uint8_t *pixels, size_t pixels_capacity,
                                 int w, int h, int first_row, int end_row);
+
+/* Shows a decoded frame (CVPixelBufferRef, NV12 video range,
+ * IOSurface-backed) without copying it: its two planes become the textures.
+ * The frame is kept until the GPU can no longer be reading it. Returns -1
+ * (nothing changed) when the frame cannot be shown this way; the caller then
+ * uploads it with tb_metal_view_upload_nv12. */
+int  tb_metal_view_show_pixbuf(struct tb_metal_view *v, void *cv_pixel_buffer);
+
+/* Colour management of the video layer (enum tb_color_space). */
+void tb_metal_view_set_color_space(struct tb_metal_view *v, int color_space);
+
+/* 1 when the main screen can show the Display P3 gamut (e.g. iMac 5K 2015
+ * and later). Works without a view. */
+int  tb_screen_supports_display_p3(void);
 
 /* Draws the last uploaded picture over the whole output. Call between
  * SDL_RenderClear and the SDL draws that should appear on top. */

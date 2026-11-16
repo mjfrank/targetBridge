@@ -2,6 +2,8 @@
 
 #import "tb_metal_view.h"
 
+#import <AppKit/AppKit.h>
+#import <CoreVideo/CoreVideo.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
@@ -42,10 +44,16 @@ enum tb_metal_kind {
     TB_METAL_KIND_NONE = 0,
     TB_METAL_KIND_NV12_CPU,   /* Y + CbCr, written by the CPU */
     TB_METAL_KIND_NV12_GPU,   /* Y + CbCr, blitted from the frame memory */
-    TB_METAL_KIND_RGB10       /* BGR10A2, blitted from the frame memory */
+    TB_METAL_KIND_RGB10,      /* BGR10A2, blitted from the frame memory */
+    TB_METAL_KIND_NV12_SURFACE /* Y + CbCr, the decoder's own IOSurface (zero-copy) */
 };
 
 #define TB_METAL_PLANES 2
+
+/* Zero-copy frames stay referenced for this many newer frames, so the decoder
+ * cannot reuse a picture the GPU may still be drawing (SDL keeps up to three
+ * drawables in flight). */
+#define TB_METAL_SURFACE_RING 4
 
 @interface TBMetalView : NSObject {
 @public
@@ -53,6 +61,10 @@ enum tb_metal_kind {
     id<MTLBuffer>  _sources[TB_METAL_PLANES];
     const void    *_sourcePointers[TB_METAL_PLANES];
     size_t         _sourceLengths[TB_METAL_PLANES];
+    CVMetalTextureCacheRef _textureCache;
+    CVPixelBufferRef  _ringFrames[TB_METAL_SURFACE_RING];
+    CVMetalTextureRef _ringTextures[TB_METAL_SURFACE_RING][TB_METAL_PLANES];
+    int               _ringNext;
 }
 @property (nonatomic, strong) CAMetalLayer *layer;
 @property (nonatomic, strong) id<MTLDevice> device;
@@ -68,6 +80,7 @@ enum tb_metal_kind {
 @property (nonatomic) int height;
 @property (nonatomic) BOOL filled;
 @property (nonatomic) MTLPixelFormat defaultFormat;
+@property (nonatomic) int colorSpace;
 @end
 
 @implementation TBMetalView
@@ -115,10 +128,26 @@ struct tb_metal_view *tb_metal_view_create(SDL_Renderer *ren) {
     }
 }
 
+static void tb_metal_view_release_ring(TBMetalView *view) {
+    for (int i = 0; i < TB_METAL_SURFACE_RING; ++i) {
+        for (int p = 0; p < TB_METAL_PLANES; ++p) {
+            if (view->_ringTextures[i][p]) CFRelease(view->_ringTextures[i][p]);
+            view->_ringTextures[i][p] = NULL;
+        }
+        if (view->_ringFrames[i]) CVPixelBufferRelease(view->_ringFrames[i]);
+        view->_ringFrames[i] = NULL;
+    }
+    view->_ringNext = 0;
+}
+
 void tb_metal_view_destroy(struct tb_metal_view *v) {
     if (!v) return;
     TBMetalView *view = (__bridge_transfer TBMetalView *)v->object;
+    tb_metal_view_release_ring(view);
+    if (view->_textureCache) CFRelease(view->_textureCache);
+    view->_textureCache = NULL;
     view.layer.pixelFormat = view.defaultFormat;
+    view.layer.colorspace = NULL;
     view = nil;
     free(v);
 }
@@ -136,6 +165,7 @@ void tb_metal_view_reset(struct tb_metal_view *v) {
     if (!view) return;
     for (int i = 0; i < TB_METAL_PLANES; ++i) view->_textures[i] = nil;
     tb_metal_view_forget_sources(view);
+    tb_metal_view_release_ring(view);
     view.kind = TB_METAL_KIND_NONE;
     view.width = 0;
     view.height = 0;
@@ -181,6 +211,7 @@ static BOOL tb_metal_view_prepare(TBMetalView *view, int kind, int w, int h) {
     if (view.kind == kind && view.width == w && view.height == h && view->_textures[0]) return YES;
     for (int i = 0; i < TB_METAL_PLANES; ++i) view->_textures[i] = nil;
     tb_metal_view_forget_sources(view);
+    tb_metal_view_release_ring(view);
     view.filled = NO;
 
     /* CPU uploads need textures the CPU can write (managed); GPU blits go
@@ -333,6 +364,91 @@ int tb_metal_view_upload_rgb10(struct tb_metal_view *v,
                                 (NSUInteger)(end_row - first_row), (NSUInteger)w, view->_textures[0]);
         [blit endEncoding];
         return tb_metal_view_finish(view, commands);
+    }
+}
+
+int tb_metal_view_show_pixbuf(struct tb_metal_view *v, void *cv_pixel_buffer) {
+    TBMetalView *view = tb_view(v);
+    CVPixelBufferRef pb = (CVPixelBufferRef)cv_pixel_buffer;
+    if (!view || !pb) return -1;
+    /* The shader expects 8-bit NV12 in video range, as the copy path does. */
+    if (CVPixelBufferGetPixelFormatType(pb) != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) return -1;
+    if (!CVPixelBufferGetIOSurface(pb)) return -1;
+    const int w = (int)CVPixelBufferGetWidth(pb);
+    const int h = (int)CVPixelBufferGetHeight(pb);
+    if (w <= 1 || h <= 1 || (w & 1) || (h & 1)) return -1;
+    @autoreleasepool {
+        if (!view->_textureCache &&
+            CVMetalTextureCacheCreate(kCFAllocatorDefault, NULL, view.device, NULL,
+                                      &view->_textureCache) != kCVReturnSuccess) {
+            view->_textureCache = NULL;
+            fprintf(stderr, "[metal] zero-copy: no texture cache\n");
+            return -1;
+        }
+        CVMetalTextureRef planes[TB_METAL_PLANES] = { NULL, NULL };
+        const MTLPixelFormat formats[TB_METAL_PLANES] = { MTLPixelFormatR8Unorm, MTLPixelFormatRG8Unorm };
+        for (int p = 0; p < TB_METAL_PLANES; ++p) {
+            const size_t pw = CVPixelBufferGetWidthOfPlane(pb, (size_t)p);
+            const size_t ph = CVPixelBufferGetHeightOfPlane(pb, (size_t)p);
+            if (CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, view->_textureCache, pb, NULL,
+                                                          formats[p], pw, ph, (size_t)p,
+                                                          &planes[p]) != kCVReturnSuccess ||
+                !planes[p] || !CVMetalTextureGetTexture(planes[p])) {
+                for (int q = 0; q < TB_METAL_PLANES; ++q) if (planes[q]) CFRelease(planes[q]);
+                return -1;
+            }
+        }
+
+        if (view.kind != TB_METAL_KIND_NV12_SURFACE || view.width != w || view.height != h) {
+            for (int i = 0; i < TB_METAL_PLANES; ++i) view->_textures[i] = nil;
+            tb_metal_view_forget_sources(view);
+            tb_metal_view_release_ring(view);
+            view.kind = TB_METAL_KIND_NV12_SURFACE;
+            view.width = w;
+            view.height = h;
+            fprintf(stderr, "[metal] textures %dx%d NV12, zero-copy from the decoder\n", w, h);
+        }
+
+        /* Replace the oldest entry; the newer ones may still be in flight. */
+        const int slot = view->_ringNext;
+        for (int p = 0; p < TB_METAL_PLANES; ++p) {
+            if (view->_ringTextures[slot][p]) CFRelease(view->_ringTextures[slot][p]);
+            view->_ringTextures[slot][p] = planes[p];
+            view->_textures[p] = CVMetalTextureGetTexture(planes[p]);
+        }
+        if (view->_ringFrames[slot]) CVPixelBufferRelease(view->_ringFrames[slot]);
+        view->_ringFrames[slot] = CVPixelBufferRetain(pb);
+        view->_ringNext = (slot + 1) % TB_METAL_SURFACE_RING;
+        CVMetalTextureCacheFlush(view->_textureCache, 0);
+        view.filled = YES;
+        return 0;
+    }
+}
+
+void tb_metal_view_set_color_space(struct tb_metal_view *v, int color_space) {
+    TBMetalView *view = tb_view(v);
+    if (!view || view.colorSpace == color_space) return;
+    CGColorSpaceRef space = NULL;
+    const char *name = "unmanaged";
+    if (color_space == TB_COLOR_SPACE_SRGB) {
+        space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        name = "sRGB";
+    } else if (color_space == TB_COLOR_SPACE_DISPLAY_P3) {
+        space = CGColorSpaceCreateWithName(kCGColorSpaceDisplayP3);
+        name = "Display P3";
+    } else {
+        color_space = TB_COLOR_SPACE_UNMANAGED;
+    }
+    view.layer.colorspace = space;
+    if (space) CGColorSpaceRelease(space);
+    view.colorSpace = color_space;
+    fprintf(stderr, "[metal] colour space %s\n", name);
+}
+
+int tb_screen_supports_display_p3(void) {
+    @autoreleasepool {
+        NSScreen *screen = NSScreen.screens.firstObject;
+        return screen && [screen canRepresentDisplayGamut:NSDisplayGamutP3] ? 1 : 0;
     }
 }
 

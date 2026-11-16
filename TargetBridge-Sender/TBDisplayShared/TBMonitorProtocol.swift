@@ -71,6 +71,11 @@ struct TBMonitorDisplayProfile: Codable {
     /// Optional so older receivers still decode; absent means "cannot".
     var supportsNightShift: Bool?
     var supportsTrueTone: Bool?
+    /// The Receiver tags its video layer with the colour space announced in
+    /// the session ack (TargetBridge Metal renderer only).
+    var supportsColorSpaceTags: Bool?
+    /// "displayP3" when the Receiver's panel shows the P3 gamut, else "srgb".
+    var panelColorSpace: String?
 }
 
 struct TBMonitorDataStreamHello: Codable {
@@ -81,6 +86,9 @@ struct TBMonitorCreateSessionAck: Codable {
     var accepted: Bool
     var displayName: String
     var displayID: UInt32
+    /// Colour space of the video ("srgb" / "displayP3"); absent when the
+    /// session is not colour-labelled.
+    var colorSpace: String? = nil
 }
 
 struct TBMonitorUILanguageUpdate: Codable {

@@ -38,6 +38,7 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *rendererSDLMetalItem;
 @property(nonatomic, strong) NSMenuItem *rendererSDLOpenGLItem;
 @property(nonatomic, strong) NSMenuItem *displaySyncItem;
+@property(nonatomic, strong) NSMenuItem *zeroCopyItem;
 @property(nonatomic, strong) NSMenuItem *statsItem;
 @property(nonatomic, strong) NSPopUpButton *checkbox;        /* app mode */
 @property(nonatomic, strong) NSButton *showAtStartCheckbox;
@@ -159,6 +160,7 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     _rendererSDLOpenGLItem.tag = 2;
     [expert addItem:NSMenuItem.separatorItem];
     _displaySyncItem = [self addItemTo:expert action:@selector(toggleDisplaySync:)];
+    _zeroCopyItem = [self addItemTo:expert action:@selector(toggleZeroCopy:)];
     _expertItem = [performance addItemWithTitle:@"" action:nil keyEquivalent:@""];
     _expertItem.submenu = expert;
     _performanceItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
@@ -248,6 +250,11 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     case 2: self.actions |= TB_BACKGROUND_UI_RENDERER_SDL_OPENGL; break;
     default: self.actions |= TB_BACKGROUND_UI_RENDERER_TARGETBRIDGE; break;
     }
+}
+
+- (void)toggleZeroCopy:(id)sender {
+    (void)sender;
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_ZERO_COPY;
 }
 
 - (void)toggleDisplaySync:(id)sender {
@@ -358,6 +365,7 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     self.rendererSDLMetalItem.title = tb_ui_text("receiver.expert.renderer_sdl_metal");
     self.rendererSDLOpenGLItem.title = tb_ui_text("receiver.expert.renderer_sdl_opengl");
     self.displaySyncItem.title = tb_ui_text("receiver.expert.display_sync");
+    self.zeroCopyItem.title = tb_ui_text("receiver.expert.zero_copy");
     self.statsItem.title = tb_ui_text("receiver.performance.show_stats");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
     [self.checkbox.menu itemWithTag:TB_APP_PRESENTATION_STANDARD].title = tb_ui_text("receiver.app_mode.standard");
@@ -478,7 +486,7 @@ static NSControlStateValue tb_ui_state(int on) {
 }
 
 void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int renderer,
-                                      int display_sync, int stats) {
+                                      int display_sync, int stats, int zero_copy) {
     g_background_ui.newestFrameItem.state = tb_ui_state(newest_frame);
     g_background_ui.wakeOnDataItem.state = tb_ui_state(wake_on_data);
     g_background_ui.rendererTargetBridgeItem.state = tb_ui_state(renderer == 0);
@@ -487,6 +495,9 @@ void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int re
     g_background_ui.displaySyncItem.state = tb_ui_state(display_sync);
     g_background_ui.displaySyncItem.enabled = renderer == 0;
     g_background_ui.statsItem.state = tb_ui_state(stats);
+    /* Only the TargetBridge Metal renderer can show frames without a copy. */
+    g_background_ui.zeroCopyItem.state = tb_ui_state(zero_copy);
+    g_background_ui.zeroCopyItem.enabled = renderer == 0;
 }
 
 void tb_background_ui_set_update_notice(const char *text) {

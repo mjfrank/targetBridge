@@ -434,6 +434,7 @@ final class TBDisplaySenderService: ObservableObject {
         var profileCodecPreference: String?
         var parallelStreams: Bool?
         var keepAlive: Bool?
+        var colorSpace: String?
     }
 
     private var lastPersistedData: Data?
@@ -477,7 +478,8 @@ final class TBDisplaySenderService: ObservableObject {
                 codecPreference: session.codecPreference.rawValue,
                 profileCodecPreference: session.profileCodecPreference?.rawValue,
                 parallelStreams: session.parallelStreams,
-                keepAlive: session.keepAlive
+                keepAlive: session.keepAlive,
+                colorSpace: session.colorSpacePreference.rawValue
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -579,6 +581,9 @@ final class TBDisplaySenderService: ObservableObject {
             .flatMap(TBDisplayCodecPreference.init(rawValue:))
         session.parallelStreams = config.parallelStreams ?? true
         session.keepAlive = config.keepAlive ?? false
+        session.colorSpacePreference = config.colorSpace
+            .flatMap(TBVideoColorSpacePreference.init(rawValue:))
+            ?? .automatic
     }
 
     func refreshLocalInterfaces() {

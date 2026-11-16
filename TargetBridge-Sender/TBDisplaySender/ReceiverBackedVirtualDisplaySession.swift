@@ -84,7 +84,8 @@ final class ReceiverBackedVirtualDisplaySession {
         modeOverride: TBVirtualDisplayModeSize? = nil,
         identity: TBVirtualDisplayIdentity,
         displayName customDisplayName: String? = nil,
-        receiverKey: String
+        receiverKey: String,
+        colorSpace: TBVideoColorSpace? = nil
     ) -> Bool {
         destroy()
         let preferredRefreshRate = refreshRate ?? profile.refreshRate
@@ -130,10 +131,15 @@ final class ReceiverBackedVirtualDisplaySession {
         // desktop differently from the built-in Display P3 panel. Advertise the
         // iMac's wide-gamut SDR space explicitly so capture is colour-managed
         // before it enters the 8-bit NV12 video pipeline.
-        descriptor.whitePoint = CGPoint(x: 0.3125, y: 0.3291) // D65
-        descriptor.redPrimary = CGPoint(x: 0.6797, y: 0.3203)
-        descriptor.greenPrimary = CGPoint(x: 0.2559, y: 0.6983)
-        descriptor.bluePrimary = CGPoint(x: 0.1494, y: 0.0557)
+        //
+        // A colour-labelled session (experimental, Receiver with colour
+        // management) uses exactly the chosen colour space instead, so what
+        // macOS renders, what is captured and what the Receiver is told agree.
+        let primaries = Self.chromaticities(for: colorSpace)
+        descriptor.whitePoint = primaries.white
+        descriptor.redPrimary = primaries.red
+        descriptor.greenPrimary = primaries.green
+        descriptor.bluePrimary = primaries.blue
 
         let ppi = 218.0
         descriptor.sizeInMillimeters = CGSize(
@@ -186,6 +192,18 @@ final class ReceiverBackedVirtualDisplaySession {
         // sticks across reconnects for this receiver.
         TBVirtualDisplayModeMemory.shared.track(displayID: display.displayID, key: preferenceKey)
         return true
+    }
+
+    /// The iMac's wide-gamut SDR primaries used before colour labelling.
+    static let unlabelledChromaticities = TBVideoColorSpace.Chromaticities(
+        white: CGPoint(x: 0.3125, y: 0.3291), // D65
+        red: CGPoint(x: 0.6797, y: 0.3203),
+        green: CGPoint(x: 0.2559, y: 0.6983),
+        blue: CGPoint(x: 0.1494, y: 0.0557)
+    )
+
+    static func chromaticities(for colorSpace: TBVideoColorSpace?) -> TBVideoColorSpace.Chromaticities {
+        colorSpace?.chromaticities ?? unlabelledChromaticities
     }
 
     func destroy() {

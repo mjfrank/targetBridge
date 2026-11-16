@@ -71,6 +71,17 @@ void tb_disp_render_nv12_rows(struct tb_display *d,
                               const uint8_t *uv, size_t uv_capacity,
                               int w, int h, int first_row, int end_row);
 
+/* Experimental zero-copy: shows a decoded frame (CVPixelBufferRef) directly
+ * with the TargetBridge Metal renderer. Returns -1 when that is not possible
+ * (other renderer, software-decoded or unusual frame); the caller then uses
+ * tb_disp_render_nv12 as before. */
+int  tb_disp_render_pixbuf(struct tb_display *d, void *cv_pixel_buffer);
+
+/* Colour management of the video (enum tb_color_space in color_space.h):
+ * only with the TargetBridge Metal renderer. */
+int  tb_disp_color_managed(struct tb_display *d);
+void tb_disp_set_color_space(struct tb_display *d, int color_space);
+
 /* A notice shown at the bottom of the picture (e.g. a version mismatch);
  * NULL or "" removes it. */
 void tb_disp_set_notice_text(struct tb_display *d, const char *text);

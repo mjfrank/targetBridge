@@ -767,6 +767,28 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         }
                     }
 
+                    settingRow(
+                        TBDisplaySenderL10n.colorSpace(service.language),
+                        details: TBDisplaySenderL10n.colorSpaceDetails(
+                            active: session.activeColorSpace,
+                            receiverSupportsTags: session.receiverSupportsColorSpaceTags,
+                            streaming: session.isStreaming,
+                            language: service.language
+                        )
+                    ) {
+                        Picker(TBDisplaySenderL10n.colorSpace(service.language), selection: $session.colorSpacePreference) {
+                            ForEach(TBVideoColorSpacePreference.allCases) { preference in
+                                Text(TBDisplaySenderL10n.colorSpacePreferenceTitle(
+                                    preference,
+                                    language: service.language
+                                ))
+                                .tag(preference)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(session.isConnected || session.isStreaming)
+                    }
+
                     // A native-scale profile already renders the desktop 1:1 with the
                     // stream, so render matching has nothing left to do and its HiDPI
                     // wording would be wrong. Hide the row rather than show a toggle
