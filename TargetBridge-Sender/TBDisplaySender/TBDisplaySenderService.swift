@@ -83,28 +83,23 @@ enum TBStreamResolution: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// What the Sender streams: resolution, frame rate and (optionally) a fixed
-/// H.264/HEVC bitrate. Every technical setting derives from these by the rules
+/// What the Sender streams: resolution and frame rate. Every technical setting
+/// (including the H.264/HEVC bitrate) derives from these by the rules
 /// below, which reproduce the earlier fixed stream profiles (Full HD, Smooth,
 /// 5K, 5K 60 …) for their resolution and frame rate.
 struct TBDisplayCapturePreset: Equatable, Hashable {
     var resolution: TBStreamResolution
     /// One of `TBDisplayCapturePreset.frameRates`.
     var frameRate: Int
-    /// Fixed H.264/HEVC bitrate in Mbit/s; nil = automatic.
-    var bitRateMbps: Int?
 
-    init(resolution: TBStreamResolution, frameRate: Int, bitRateMbps: Int? = nil) {
+    init(resolution: TBStreamResolution, frameRate: Int) {
         self.resolution = resolution
         self.frameRate = Self.frameRates.contains(frameRate) ? frameRate : 60
-        self.bitRateMbps = bitRateMbps.flatMap { $0 > 0 ? $0 : nil }
     }
 
     /// Selectable frame rates. 24/48 suit film, 25/50 PAL video, 30/60 the
     /// desktop; 48 is the recommended rate for 5K with HEVC.
     static let frameRates = [24, 25, 30, 48, 50, 60]
-    /// Selectable fixed bitrates for H.264/HEVC (Mbit/s).
-    static let bitRatesMbps = [10, 20, 30, 50, 80, 100, 120, 150, 200]
 
     // The earlier fixed stream profiles, as resolution and frame rate.
     static let standard1080p = Self(resolution: .fullHD, frameRate: 30)
@@ -143,9 +138,9 @@ struct TBDisplayCapturePreset: Equatable, Hashable {
         "native5k60DPCM": (native5k60, .losslessDPCM)
     ]
 
-    /// "retina5K@48", with "/<Mbit/s>" for a fixed bitrate.
+    /// "retina5K@48"
     var rawValue: String {
-        "\(resolution.rawValue)@\(frameRate)" + (bitRateMbps.map { "/\($0)" } ?? "")
+        "\(resolution.rawValue)@\(frameRate)"
     }
 
     /// Reads `rawValue`, or an earlier profile name.
@@ -157,9 +152,9 @@ struct TBDisplayCapturePreset: Equatable, Hashable {
         let parts = rawValue.split(separator: "@", maxSplits: 1).map(String.init)
         guard parts.count == 2, let resolution = TBStreamResolution(rawValue: parts[0]) else { return nil }
         let rateParts = parts[1].split(separator: "/", maxSplits: 1).map(String.init)
+        // A "/<Mbit/s>" suffix from a short-lived fixed-bitrate setting is ignored.
         guard let frameRate = Int(rateParts[0]), Self.frameRates.contains(frameRate) else { return nil }
-        let bitRate = rateParts.count == 2 ? Int(rateParts[1]) : nil
-        self.init(resolution: resolution, frameRate: frameRate, bitRateMbps: bitRate)
+        self.init(resolution: resolution, frameRate: frameRate)
     }
 
     var width: Int { resolution.width }
@@ -174,8 +169,9 @@ struct TBDisplayCapturePreset: Equatable, Hashable {
     /// High-frame-rate 5K: the setting that needs the tuned encoder below.
     private var isHighRate5K: Bool { resolution == .retina5K && frameRate >= 50 }
 
-    /// Automatic bitrate: the earlier profiles' 60 Hz value, scaled down for
-    /// lower frame rates (Full HD 30 = 20, QHD 30 = 35, 5K 48 = 120 Mbit/s).
+    /// H.264/HEVC target bitrate: the earlier profiles' 60 Hz value, scaled
+    /// down for lower frame rates (Full HD 30 = 20, QHD 30 = 35, 5K 48 = 120
+    /// Mbit/s). A target for the encoder, not a limit of the connection.
     var automaticBitRateMbps: Int {
         let factor: Double
         switch frameRate {
@@ -187,9 +183,7 @@ struct TBDisplayCapturePreset: Equatable, Hashable {
         return max(1, Int((Double(resolution.bitRateAt60Mbps) * factor).rounded()))
     }
 
-    var effectiveBitRateMbps: Int { bitRateMbps ?? automaticBitRateMbps }
-
-    var averageBitRate: Int { effectiveBitRateMbps * 1_000_000 }
+    var averageBitRate: Int { automaticBitRateMbps * 1_000_000 }
 
     /// H.264 up to QHD+, HEVC from 4K on.
     var codecType: CMVideoCodecType {

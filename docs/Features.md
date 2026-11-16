@@ -30,17 +30,14 @@ Related reading:
 - [docs/QuickStart-IT.md](docs/QuickStart-IT.md)
 - [docs/QuickStart-ZH.md](docs/QuickStart-ZH.md)
 
-## Resolution, Frame Rate, Bitrate and Compression
+## Resolution, Frame Rate and Compression
 
-Each session sets four things before it starts:
+Each session sets three things before it starts:
 
 - **Resolution**: Full HD (1920 × 1080), QHD (2560 × 1440), QHD+ (3200 × 1800),
   4K UHD (3840 × 2160), Retina 4K (4096 × 2304) or 5K (5120 × 2880).
 - **Frame rate**: 24, 25, 30, 48, 50 or 60 Hz. 48 Hz is recommended for 5K with
   HEVC.
-- **Bitrate** (H.264/HEVC only): Automatic, which follows resolution and frame
-  rate (for example 120 Mbit/s for 5K at 48 Hz, 150 Mbit/s at 60 Hz), or a fixed
-  value from 10 to 200 Mbit/s. Not used by the uncompressed and lossless modes.
 - **Video compression**: Automatic, H.264, HEVC, or one of the uncompressed and
   lossless modes. With Automatic, the setting shows which codec it uses for the
   chosen resolution and frame rate.

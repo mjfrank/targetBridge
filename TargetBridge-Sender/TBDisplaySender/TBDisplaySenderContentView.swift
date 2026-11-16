@@ -770,30 +770,6 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                         .disabled(session.isConnected || session.isStreaming)
                     }
 
-                    // Bitrate applies to H.264/HEVC; the uncompressed and lossless
-                    // modes send what the picture needs.
-                    settingRow(
-                        TBDisplaySenderL10n.text("sender.stream.bitrate", service.language),
-                        details: TBDisplaySenderL10n.text(
-                            session.codecPreference.usesRawFrames ? "sender.stream.bitrate_raw_hint" : "sender.stream.bitrate_hint",
-                            service.language)
-                    ) {
-                        Picker(TBDisplaySenderL10n.text("sender.stream.bitrate", service.language),
-                               selection: Binding(
-                                   get: { session.capturePreset.bitRateMbps ?? 0 },
-                                   set: { session.capturePreset.bitRateMbps = $0 > 0 ? $0 : nil }
-                               )) {
-                            Text(TBDisplaySenderL10n.text("sender.stream.bitrate_automatic", service.language,
-                                                          ["value": "\(session.capturePreset.automaticBitRateMbps)"]))
-                                .tag(0)
-                            ForEach(TBDisplayCapturePreset.bitRatesMbps, id: \.self) { rate in
-                                Text("\(rate) Mbit/s").tag(rate)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .disabled(session.isConnected || session.isStreaming || session.codecPreference.usesRawFrames)
-                    }
-
                     // Always shown. Off with Automatic (H.264/HEVC use one connection),
                     // on and greyed out where the mode needs it.
                     settingRow(
