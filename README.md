@@ -209,16 +209,14 @@ Receivers, named by processor and the lowest macOS version they run on:
 Which Receiver for which Mac:
 - **Apple Silicon Mac:** the Apple Silicon Receiver.
 - **Intel Mac on macOS 15 Sequoia or macOS 26 Tahoe:** either Intel Receiver.
-  The macOS 15 Sequoia one comes with Homebrew's newer libraries.
 - **Intel Mac on macOS 10.14 Mojave up to macOS 14 Sonoma:** the macOS 10.14
   Mojave Receiver. Typical for older iMacs, for example the iMac (Retina 5K,
   27-inch, 2017), whose last supported version is macOS 13 Ventura.
 
-All three have the same features. The macOS 10.14 Mojave Receiver bundles
-SDL2 and a minimal FFmpeg (H.264/HEVC with hardware decoding) built for
-macOS 10.14 Mojave; the other two use Homebrew's libraries, which require
-macOS 15 Sequoia. Each build fails if any bundled part needs a newer macOS
-than its name says.
+All three have the same features and bundle SDL2 and a minimal FFmpeg
+(H.264/HEVC with hardware decoding, nothing else), built from source for
+their processor and minimum macOS, so each app is about 8 MB. Each build
+fails if any bundled part needs a newer macOS than its name says.
 
 Unzip and double-click. On first launch, grant Screen Recording permission to the sender.
 

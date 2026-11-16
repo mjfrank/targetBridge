@@ -67,13 +67,13 @@ jobs:
           retention-days: 1
 
   # Three Receivers, named by processor and lowest supported macOS (see
-  # ci.yml). The macOS 10.14 Mojave one uses SDL2 and FFmpeg built from source.
+  # ci.yml), each with a minimal SDL2 and FFmpeg built from source.
   build-receiver:
     name: Build Receiver (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     env:
       TARGETBRIDGE_SIGNING_CONFIGURED: ${{ secrets.TARGETBRIDGE_CODESIGN_P12_BASE64 != '' }}
-      LEGACY_PREFIX: ${{ github.workspace }}/legacy-deps
+      DEPS_PREFIX: ${{ github.workspace }}/receiver-deps
     strategy:
       matrix:
         include:
@@ -81,45 +81,38 @@ jobs:
             arch: arm64
             label: AppleSilicon-macOS15-Sequoia-and-later
             max_min_os: "15.0"
-            legacy: false
           - os: macos-15-intel
             arch: x86_64
             label: Intel-macOS15-Sequoia-and-later
             max_min_os: "15.0"
-            legacy: false
           - os: macos-15-intel
             arch: x86_64
             label: Intel-macOS10.14-Mojave-and-later
             max_min_os: "10.14"
-            legacy: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
 
-      - name: Install Dependencies
-        if: ${{ !matrix.legacy }}
-        run: |
-          brew install ffmpeg sdl2 sdl3 dylibbundler
-
-      - name: Install Build Tools (macOS 10.14 Mojave libraries)
-        if: ${{ matrix.legacy }}
+      - name: Install Build Tools
         run: |
           brew install pkgconf nasm cmake jq dylibbundler
 
-      - name: Cache Libraries (macOS 10.14 Mojave)
-        if: ${{ matrix.legacy }}
+      # Our own minimal SDL2 and FFmpeg (H.264/HEVC + VideoToolbox, swscale)
+      # instead of Homebrew's complete FFmpeg: about 8 MB instead of 53 MB.
+      - name: Cache Libraries
         id: cache
         uses: actions/cache@v4
         with:
-          path: legacy-deps
-          key: legacy-deps-10.14-sdl2-2.30.9-ffmpeg-7.1-${{ hashFiles('TargetBridge-Receiver/scripts/build_legacy_deps.sh') }}
+          path: receiver-deps
+          key: receiver-deps-${{ matrix.arch }}-${{ matrix.max_min_os }}-sdl2-2.30.9-ffmpeg-7.1-${{ hashFiles('TargetBridge-Receiver/scripts/build_receiver_deps.sh') }}
 
-      - name: Build SDL2 and FFmpeg for macOS 10.14 Mojave
-        if: ${{ matrix.legacy && steps.cache.outputs.cache-hit != 'true' }}
+      - name: Build SDL2 and FFmpeg
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         env:
-          MACOSX_DEPLOYMENT_TARGET: "10.14"
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.max_min_os }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          bash TargetBridge-Receiver/scripts/build_legacy_deps.sh "$LEGACY_PREFIX"
+          bash TargetBridge-Receiver/scripts/build_receiver_deps.sh "$DEPS_PREFIX"
 
       - name: Import release signing certificate
         if: ${{ env.TARGETBRIDGE_SIGNING_CONFIGURED == 'true' }}
@@ -132,11 +125,11 @@ jobs:
         env:
           TARGETBRIDGE_RECEIVER_MAX_MIN_OS: ${{ matrix.max_min_os }}
         run: |
-          if [[ "${{ matrix.legacy }}" == "true" ]]; then
-            export MACOSX_DEPLOYMENT_TARGET=10.14
-            export PKG_CONFIG_PATH="$LEGACY_PREFIX/lib/pkgconfig"
-            export DYLD_FALLBACK_LIBRARY_PATH="$LEGACY_PREFIX/lib"
-            export TARGETBRIDGE_LIBRARY_DIR="$LEGACY_PREFIX/lib"
+          export MACOSX_DEPLOYMENT_TARGET="${{ matrix.max_min_os }}"
+          export PKG_CONFIG_PATH="$DEPS_PREFIX/lib/pkgconfig"
+          export DYLD_FALLBACK_LIBRARY_PATH="$DEPS_PREFIX/lib"
+          export TARGETBRIDGE_LIBRARY_DIR="$DEPS_PREFIX/lib"
+          if [[ "${{ matrix.max_min_os }}" == "10.14" ]]; then
             export CFLAGS=-Werror=unguarded-availability-new
           fi
           cd TargetBridge-Receiver

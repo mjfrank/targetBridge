@@ -66,10 +66,11 @@ jobs:
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb sender build/TargetBridge.app/Contents/MacOS/TargetBridge
 
   # Three Receivers, named by processor and lowest supported macOS:
-  #   Apple silicon, macOS 15 Sequoia and later   (Homebrew libraries)
-  #   Intel,         macOS 15 Sequoia and later   (Homebrew libraries)
-  #   Intel,         macOS 10.14 Mojave and later (SDL2 and FFmpeg built
-  #                  from source by build_legacy_deps.sh)
+  #   Apple silicon, macOS 15 Sequoia and later
+  #   Intel,         macOS 15 Sequoia and later
+  #   Intel,         macOS 10.14 Mojave and later
+  # All three bundle a minimal SDL2 and FFmpeg built from source by
+  # build_receiver_deps.sh for their processor and minimum macOS.
   # Each build fails if any bundled part needs a newer macOS than its name.
   build-receiver:
     name: Build Receiver (${{ matrix.label }})
@@ -81,48 +82,41 @@ jobs:
             arch: arm64
             label: AppleSilicon-macOS15-Sequoia-and-later
             max_min_os: "15.0"
-            legacy: false
           - os: macos-15-intel
             arch: x86_64
             label: Intel-macOS15-Sequoia-and-later
             max_min_os: "15.0"
-            legacy: false
           - os: macos-15-intel
             arch: x86_64
             label: Intel-macOS10.14-Mojave-and-later
             max_min_os: "10.14"
-            legacy: true
     runs-on: ${{ matrix.os }}
     env:
-      LEGACY_PREFIX: ${{ github.workspace }}/legacy-deps
+      DEPS_PREFIX: ${{ github.workspace }}/receiver-deps
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
 
-      - name: Install Dependencies
-        if: ${{ !matrix.legacy }}
-        run: |
-          brew install ffmpeg jq sdl2 sdl3 dylibbundler
-
-      - name: Install Build Tools (macOS 10.14 Mojave libraries)
-        if: ${{ matrix.legacy }}
+      - name: Install Build Tools
         run: |
           brew install pkgconf nasm cmake jq dylibbundler
 
-      - name: Cache Libraries (macOS 10.14 Mojave)
-        if: ${{ matrix.legacy }}
+      # Our own minimal SDL2 and FFmpeg (H.264/HEVC + VideoToolbox, swscale)
+      # instead of Homebrew's complete FFmpeg: about 8 MB instead of 53 MB.
+      - name: Cache Libraries
         id: cache
         uses: actions/cache@v4
         with:
-          path: legacy-deps
-          key: legacy-deps-10.14-sdl2-2.30.9-ffmpeg-7.1-${{ hashFiles('TargetBridge-Receiver/scripts/build_legacy_deps.sh') }}
+          path: receiver-deps
+          key: receiver-deps-${{ matrix.arch }}-${{ matrix.max_min_os }}-sdl2-2.30.9-ffmpeg-7.1-${{ hashFiles('TargetBridge-Receiver/scripts/build_receiver_deps.sh') }}
 
-      - name: Build SDL2 and FFmpeg for macOS 10.14 Mojave
-        if: ${{ matrix.legacy && steps.cache.outputs.cache-hit != 'true' }}
+      - name: Build SDL2 and FFmpeg
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         env:
-          MACOSX_DEPLOYMENT_TARGET: "10.14"
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.max_min_os }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          bash TargetBridge-Receiver/scripts/build_legacy_deps.sh "$LEGACY_PREFIX"
+          bash TargetBridge-Receiver/scripts/build_receiver_deps.sh "$DEPS_PREFIX"
 
       - name: Check Localizations
         run: |
@@ -139,11 +133,11 @@ jobs:
           # Fail if a bundled part needs a newer macOS than the name says.
           TARGETBRIDGE_RECEIVER_MAX_MIN_OS: ${{ matrix.max_min_os }}
         run: |
-          if [[ "${{ matrix.legacy }}" == "true" ]]; then
-            export MACOSX_DEPLOYMENT_TARGET=10.14
-            export PKG_CONFIG_PATH="$LEGACY_PREFIX/lib/pkgconfig"
-            export DYLD_FALLBACK_LIBRARY_PATH="$LEGACY_PREFIX/lib"
-            export TARGETBRIDGE_LIBRARY_DIR="$LEGACY_PREFIX/lib"
+          export MACOSX_DEPLOYMENT_TARGET="${{ matrix.max_min_os }}"
+          export PKG_CONFIG_PATH="$DEPS_PREFIX/lib/pkgconfig"
+          export DYLD_FALLBACK_LIBRARY_PATH="$DEPS_PREFIX/lib"
+          export TARGETBRIDGE_LIBRARY_DIR="$DEPS_PREFIX/lib"
+          if [[ "${{ matrix.max_min_os }}" == "10.14" ]]; then
             # Any macOS API newer than 10.14 used without an availability
             # check fails the build; -k reports every file's errors at once.
             export CFLAGS=-Werror=unguarded-availability-new

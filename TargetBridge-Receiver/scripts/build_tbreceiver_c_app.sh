@@ -50,7 +50,7 @@ if ! command -v dylibbundler &>/dev/null; then
   echo "Installing dylibbundler..."
   brew install dylibbundler
 fi
-# A legacy build (build_legacy_deps.sh) names its library folder, so
+# A build with our own libraries (build_receiver_deps.sh) names their folder, so
 # dylibbundler never stops to ask for one.
 DYLIBBUNDLER_SEARCH=()
 [[ -n "${TARGETBRIDGE_LIBRARY_DIR:-}" ]] && DYLIBBUNDLER_SEARCH=(-s "$TARGETBRIDGE_LIBRARY_DIR")
