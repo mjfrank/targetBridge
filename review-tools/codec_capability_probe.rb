@@ -7,7 +7,10 @@ method = source[/    static func chooseCodec\([\s\S]*?(?=\n    private func reso
 abort 'Production chooseCodec not found' unless method
 fixture = <<~SWIFT
   import CoreMedia
-  enum TBDisplayCodecPreference { case automatic, h264, hevc }
+  enum TBDisplayCodecPreference {
+      case automatic, h264, hevc
+      case uncompressed, uncompressedLZ4, uncompressedEnhanced, uncompressedFull10Bit
+  }
   struct TBDisplayCapturePreset {
       let codecType: CMVideoCodecType
   }
