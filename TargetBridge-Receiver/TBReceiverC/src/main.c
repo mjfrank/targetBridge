@@ -23,6 +23,7 @@
 #include "version_check.h"
 #include "color_space.h"
 #include "tb_metal_view.h"   /* tb_screen_supports_display_p3 */
+#include "tb_idle_wait.h"
 #include "proto.h"
 #include "tb_gesture_bridge.h"
 #include "tb_display_tweaks.h"
@@ -130,6 +131,7 @@ struct app {
     int      display_sync;     /* Metal: raw modes wait for the refresh */
     int      perf_show_stats;
     int      perf_zero_copy;   /* Metal: decoded frames shown without a copy (experimental) */
+    int      energy_saving;    /* sleep while waiting, background priority (default on) */
     int      color_space;      /* enum tb_color_space, as announced by the Sender */
     /* Changed-rows raw frames: the receiver's copy of the picture, and the
      * rows patched since the last draw (drawn once per loop with
@@ -256,7 +258,15 @@ static void tb_receiver_input_log(const char *fmt, ...) {
 }
 
 static volatile sig_atomic_t g_term = 0;
-static void on_sigint(int s) { (void)s; g_term = 1; }
+/* Sign-in screen mode without a session: nothing to clean up, so quit at
+ * once when macOS ends the sign-in window's session (someone logs in, or a
+ * restart), instead of making launchd wait for us. */
+static volatile sig_atomic_t g_exit_immediately = 0;
+static void on_sigint(int s) {
+    (void)s;
+    if (g_exit_immediately) _exit(0);
+    g_term = 1;
+}
 
 static uint64_t now_us(void) {
     struct timespec ts;
@@ -2487,6 +2497,27 @@ static void tb_receiver_update_window_visibility(struct app *a) {
      * or by opening the app again (Finder, Dock). */
     const int visible = session || a->window_requested;
 
+    /* Runs on every pass of the main loop: only touch AppKit when something
+     * changed (or once a second, to be safe). */
+    static int last_visible = -1, last_session = -1, last_presentation = -1;
+    static int last_show_at_start = -1, last_background = -1;
+    static char last_status[sizeof(a->status_text)];
+    static uint64_t last_update_ms = 0;
+    const uint64_t now = now_ms();
+    if (visible == last_visible && session == last_session &&
+        a->presentation == last_presentation && a->show_window_at_start == last_show_at_start &&
+        a->background_mode == last_background && strcmp(a->status_text, last_status) == 0 &&
+        now - last_update_ms < 1000) {
+        return;
+    }
+    last_visible = visible;
+    last_session = session;
+    last_presentation = a->presentation;
+    last_show_at_start = a->show_window_at_start;
+    last_background = a->background_mode;
+    snprintf(last_status, sizeof(last_status), "%s", a->status_text);
+    last_update_ms = now;
+
     tb_disp_set_close_hides(a->disp, a->background_mode && !session);
     if (visible) {
         tb_background_ui_update(a->presentation, a->show_window_at_start, 1, session, a->status_text);
@@ -2568,6 +2599,33 @@ static void build_display_host(char *buf, size_t bufsz, const char *ip_fallback,
 
 /* ---- Main ------------------------------------------------------------ */
 
+/* Energy saving: how long the loop may sleep while no Mac is connected. A
+ * connecting Mac, a click or a key wakes it at once; this only paces the
+ * periodic checks (network addresses, permissions). */
+#define TB_IDLE_WAIT_HIDDEN_MS   1000
+#define TB_IDLE_WAIT_VISIBLE_MS   250
+/* During a session without new data, the loop wakes at least this often
+ * (1 ms without energy saving, or while the iMac controls the Mac). */
+#define TB_SESSION_IDLE_WAIT_MS     4
+
+/* Sign-in screen mode: let the Mac finish starting up and showing the
+ * sign-in window before the Receiver loads its graphics and video code.
+ * Quits right away if someone logs in meanwhile (or FileVault logs in
+ * automatically). */
+#define TB_SIGNIN_START_DELAY_S    20
+
+static int tb_signin_settle(void) {
+    tb_idle_set_background_priority(1);
+    for (int s = 0; s < TB_SIGNIN_START_DELAY_S && !g_term; ++s) {
+        if (tb_signin_console_user_logged_in()) {
+            fprintf(stderr, "[signin] a user logged in during start-up; quitting\n");
+            return 0;
+        }
+        sleep(1);
+    }
+    return !g_term;
+}
+
 int main(int argc, char **argv) {
     int fullscreen = 1;
     int signin_mode = 0;
@@ -2594,6 +2652,12 @@ int main(int argc, char **argv) {
     signal(SIGINT,  on_sigint);
     signal(SIGTERM, on_sigint);
     signal(SIGPIPE, SIG_IGN);
+
+    if (signin_mode) {
+        g_exit_immediately = 1;
+        fprintf(stderr, "[signin] waiting %d s before starting\n", TB_SIGNIN_START_DELAY_S);
+        if (!tb_signin_settle()) return 0;   /* a normal exit: launchd won't restart it */
+    }
 
     char tb_ip[64] = {0};
     char usb_ip[64] = {0};
@@ -2685,6 +2749,7 @@ int main(int argc, char **argv) {
     a.display_sync = tb_pref_get("metalDisplaySync", 0);
     a.perf_show_stats = tb_pref_get("perfShowStats", 0);
     a.perf_zero_copy = tb_pref_get("metalZeroCopy", 0);
+    a.energy_saving = a.signin_mode ? 1 : tb_pref_get("energySaving", 1);
     if (a.signin_mode) a.perf_show_stats = 0;   /* never on the sign-in screen */
     a.disp = tb_disp_create(fullscreen, !a.window_requested, a.video_renderer);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
@@ -2719,6 +2784,7 @@ int main(int argc, char **argv) {
 
     a.server_fd = tb_net_listen(TB_PORT);
     if (a.server_fd < 0) { fprintf(stderr, "tb_net_listen failed\n"); return 1; }
+    tb_idle_wait_watch_listen_socket(a.server_fd);
 
     a.last_fps_tick_ms = now_ms();
     a.last_ip_check_ms = 0;
@@ -2740,7 +2806,7 @@ int main(int argc, char **argv) {
                 a.signin_refuse_until_ms = signin_now + TB_SIGNIN_REFUSE_MS;
             }
             /* Someone logged in: the normal Receiver takes over. */
-            if (signin_now - a.signin_last_console_check_ms >= 2000) {
+            if (signin_now - a.signin_last_console_check_ms >= 1000) {
                 a.signin_last_console_check_ms = signin_now;
                 if (tb_signin_console_user_logged_in()) {
                     fprintf(stderr, "[signin] a user logged in; quitting\n");
@@ -2809,6 +2875,11 @@ int main(int argc, char **argv) {
             tb_pref_set("perfShowStats", a.perf_show_stats);
             if (!a.perf_show_stats) tb_disp_set_stats_text(a.disp, NULL);
         }
+        if ((ui_actions & TB_BACKGROUND_UI_TOGGLE_ENERGY_SAVING) && !a.signin_mode) {
+            a.energy_saving = !a.energy_saving;
+            tb_pref_set("energySaving", a.energy_saving);
+            if (!a.energy_saving) tb_idle_set_background_priority(0);
+        }
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_ZERO_COPY) {
             /* Takes effect with the next decoded frame. */
             a.perf_zero_copy = !a.perf_zero_copy;
@@ -2816,7 +2887,7 @@ int main(int argc, char **argv) {
         }
         tb_background_ui_set_performance(a.perf_newest_frame, a.perf_wake_on_data,
                                          a.video_renderer, a.display_sync, a.perf_show_stats,
-                                         a.perf_zero_copy);
+                                         a.perf_zero_copy, a.energy_saving);
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
             a.show_window_at_start = !a.show_window_at_start;
             tb_show_window_at_start_save(a.show_window_at_start);
@@ -2892,6 +2963,8 @@ int main(int argc, char **argv) {
                 c = -1;
             }
             if (c >= 0) {
+                tb_idle_set_background_priority(0);
+                g_exit_immediately = 0;
                 a.client_fd = c;
                 a.have_video_frame = 0;
                 a.session_active = 0;
@@ -2957,7 +3030,9 @@ int main(int argc, char **argv) {
             drop_pending_frame(&a);
         }
 
-        if (t - a.last_permissions_poll_ms >= 250) {
+        /* Permissions only matter on screen or in a session; slower otherwise. */
+        if (t - a.last_permissions_poll_ms >=
+            ((a.client_fd >= 0 || a.window_requested || !a.energy_saving) ? 250u : 2000u)) {
             a.last_permissions_poll_ms = t;
             tb_receiver_poll_permissions(&a);
         }
@@ -3117,10 +3192,20 @@ int main(int argc, char **argv) {
 
         /* Yield when idle or when a nonblocking active socket had no data,
          * otherwise the receiver can busy-spin between incoming frame packets. */
-        if (a.client_fd < 0 || !a.have_video_frame || socket_activity == 0) {
+        if (a.client_fd < 0 && a.energy_saving) {
+            /* Nothing streams: sleep until a Mac connects, an event arrives
+             * or the next periodic check, at background priority while the
+             * window is hidden. */
+            tb_idle_set_background_priority(!a.window_requested);
+            g_exit_immediately = a.signin_mode;
+            tb_idle_wait(a.window_requested ? TB_IDLE_WAIT_VISIBLE_MS : TB_IDLE_WAIT_HIDDEN_MS);
+        } else if (a.client_fd < 0 || !a.have_video_frame || socket_activity == 0) {
+            const int session_wait_ms =
+                a.energy_saving && strcmp(a.input_control_mode, "receiverMaster") != 0
+                    ? TB_SESSION_IDLE_WAIT_MS : 1;
             if (a.client_fd >= 0 && a.perf_wake_on_data) {
-                /* Same 1 ms ceiling, but returns as soon as data arrives
-                 * on the session or any of its data streams. */
+                /* Returns as soon as data arrives on the session or any of
+                 * its data streams; otherwise after session_wait_ms. */
                 struct pollfd pfds[1 + TB_MAX_DATA_STREAMS];
                 nfds_t count = 0;
                 pfds[count].fd = a.client_fd;
@@ -3134,7 +3219,7 @@ int main(int argc, char **argv) {
                     pfds[count].revents = 0;
                     count++;
                 }
-                (void)poll(pfds, count, 1);
+                (void)poll(pfds, count, session_wait_ms);
             } else {
                 SDL_Delay(1);
             }

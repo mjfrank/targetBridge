@@ -246,6 +246,7 @@
   "receiver.performance.menu": "Performance",
   "receiver.performance.newest_frame": "Draw only the newest frame",
   "receiver.performance.wake_on_data": "Wake on incoming data",
+  "receiver.performance.save_energy": "Save energy while waiting",
   "receiver.expert.menu": "Renderer (Expert Settings)",
   "receiver.expert.renderer": "Applies after restarting the Receiver",
   "receiver.expert.renderer_targetbridge": "TargetBridge Metal (recommended)",

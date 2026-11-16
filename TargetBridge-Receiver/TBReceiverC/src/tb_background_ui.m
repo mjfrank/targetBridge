@@ -39,6 +39,7 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *rendererSDLOpenGLItem;
 @property(nonatomic, strong) NSMenuItem *displaySyncItem;
 @property(nonatomic, strong) NSMenuItem *zeroCopyItem;
+@property(nonatomic, strong) NSMenuItem *energySavingItem;
 @property(nonatomic, strong) NSMenuItem *statsItem;
 @property(nonatomic, strong) NSPopUpButton *checkbox;        /* app mode */
 @property(nonatomic, strong) NSButton *showAtStartCheckbox;
@@ -143,6 +144,7 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     performance.autoenablesItems = NO;
     _newestFrameItem = [self addItemTo:performance action:@selector(toggleNewestFrame:)];
     _wakeOnDataItem = [self addItemTo:performance action:@selector(toggleWakeOnData:)];
+    _energySavingItem = [self addItemTo:performance action:@selector(toggleEnergySaving:)];
     [performance addItem:NSMenuItem.separatorItem];
     _statsItem = [self addItemTo:performance action:@selector(toggleStats:)];
     [performance addItem:NSMenuItem.separatorItem];
@@ -250,6 +252,11 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     case 2: self.actions |= TB_BACKGROUND_UI_RENDERER_SDL_OPENGL; break;
     default: self.actions |= TB_BACKGROUND_UI_RENDERER_TARGETBRIDGE; break;
     }
+}
+
+- (void)toggleEnergySaving:(id)sender {
+    (void)sender;
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_ENERGY_SAVING;
 }
 
 - (void)toggleZeroCopy:(id)sender {
@@ -366,6 +373,7 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     self.rendererSDLOpenGLItem.title = tb_ui_text("receiver.expert.renderer_sdl_opengl");
     self.displaySyncItem.title = tb_ui_text("receiver.expert.display_sync");
     self.zeroCopyItem.title = tb_ui_text("receiver.expert.zero_copy");
+    self.energySavingItem.title = tb_ui_text("receiver.performance.save_energy");
     self.statsItem.title = tb_ui_text("receiver.performance.show_stats");
     self.loginHint.stringValue = tb_ui_text("receiver.background.login_hint");
     [self.checkbox.menu itemWithTag:TB_APP_PRESENTATION_STANDARD].title = tb_ui_text("receiver.app_mode.standard");
@@ -486,7 +494,7 @@ static NSControlStateValue tb_ui_state(int on) {
 }
 
 void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int renderer,
-                                      int display_sync, int stats, int zero_copy) {
+                                      int display_sync, int stats, int zero_copy, int energy_saving) {
     g_background_ui.newestFrameItem.state = tb_ui_state(newest_frame);
     g_background_ui.wakeOnDataItem.state = tb_ui_state(wake_on_data);
     g_background_ui.rendererTargetBridgeItem.state = tb_ui_state(renderer == 0);
@@ -498,6 +506,7 @@ void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int re
     /* Only the TargetBridge Metal renderer can show frames without a copy. */
     g_background_ui.zeroCopyItem.state = tb_ui_state(zero_copy);
     g_background_ui.zeroCopyItem.enabled = renderer == 0;
+    g_background_ui.energySavingItem.state = tb_ui_state(energy_saving);
 }
 
 void tb_background_ui_set_update_notice(const char *text) {

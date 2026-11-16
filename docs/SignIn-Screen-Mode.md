@@ -51,6 +51,23 @@ that you install and remove from the Receiver's menu.
   Receiver takes over; the Mac's session drops and reconnects if Keep alive
   is on.
 
+## Start-up and logging in
+
+- The sign-in screen Receiver waits **20 seconds** after the sign-in window
+  appears before it loads its graphics and video code, at the lowest
+  priority, so the Mac finishes starting up first. A Mac can connect after
+  that.
+- If someone logs in during those 20 seconds (or FileVault logs in
+  automatically after a restart), it quits without having loaded anything.
+- When someone logs in later, it quits at once instead of making macOS wait
+  for it, and while no session runs it sleeps at background priority.
+- Installations from before this version: choose **Uninstall…** and
+  **Install…** once, so the LaunchAgent also tells macOS to wait at most
+  5 seconds (instead of 20) for it when someone logs in. The other
+  improvements apply after updating the Receiver app alone.
+- If start-up still seems slow, the instance's log is in
+  `/private/tmp/TargetBridge-SignInScreen.log`.
+
 ## Uninstall
 
 Choose **Sign-in screen mode (experimental) → Uninstall…** and enter an

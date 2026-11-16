@@ -38,7 +38,7 @@ LDFLAGS  += -framework ApplicationServices -framework AppKit -framework CoreFoun
 endif
 
 C_SRC = src/main.c src/net.c src/decoder.c src/display.c src/input_queue.c src/idle_watchdog.c src/receiver_profile.c src/raw_regions.c src/version_check.c src/tb_i18n.c src/connection_log.c $(CODEC_DIR)/tb_dpcm.c
-OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m src/tb_background_ui.m src/tb_metal_view.m src/tb_signin_mode.m
+OBJC_SRC = src/tb_gesture_bridge.m src/tb_display_tweaks.m src/tb_background_ui.m src/tb_metal_view.m src/tb_signin_mode.m src/tb_idle_wait.m
 OBJ = $(C_SRC:.c=.o) $(OBJC_SRC:.m=.o)
 BIN = tbreceiver
 

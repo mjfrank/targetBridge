@@ -246,6 +246,7 @@
   "receiver.performance.menu": "Leistung",
   "receiver.performance.newest_frame": "Nur das neueste Bild zeichnen",
   "receiver.performance.wake_on_data": "Bei eingehenden Daten aufwachen",
+  "receiver.performance.save_energy": "Energie sparen beim Warten",
   "receiver.expert.menu": "Renderer (Experteneinstellungen)",
   "receiver.expert.renderer": "Gilt nach Neustart des Receivers",
   "receiver.expert.renderer_targetbridge": "TargetBridge Metal (empfohlen)",

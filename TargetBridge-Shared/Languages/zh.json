@@ -246,6 +246,7 @@
   "receiver.performance.menu": "性能",
   "receiver.performance.newest_frame": "只绘制最新一帧",
   "receiver.performance.wake_on_data": "有数据到达时立即唤醒",
+  "receiver.performance.save_energy": "等待时节省能源",
   "receiver.expert.menu": "渲染器（专家设置）",
   "receiver.expert.renderer": "重启接收端后生效",
   "receiver.expert.renderer_targetbridge": "TargetBridge Metal（推荐）",

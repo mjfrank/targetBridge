@@ -90,6 +90,9 @@ int tb_signin_install(char *error, size_t error_size) {
              * logged in). */
             @"KeepAlive": @{ @"SuccessfulExit": @NO },
             @"ProcessType": @"Interactive",
+            /* Someone logging in ends the sign-in window's session; don't
+             * let launchd wait the default 20 s for this instance. */
+            @"ExitTimeOut": @5,
             @"StandardOutPath": @TB_SIGNIN_LOG_PATH,
             @"StandardErrorPath": @TB_SIGNIN_LOG_PATH,
         };

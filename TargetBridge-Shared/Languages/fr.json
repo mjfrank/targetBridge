@@ -246,6 +246,7 @@
   "receiver.performance.menu": "Performances",
   "receiver.performance.newest_frame": "Afficher uniquement l’image la plus récente",
   "receiver.performance.wake_on_data": "Réagir dès l’arrivée des données",
+  "receiver.performance.save_energy": "Économiser l'énergie en attente",
   "receiver.expert.menu": "Rendu (réglages experts)",
   "receiver.expert.renderer": "S'applique après le redémarrage du Receiver",
   "receiver.expert.renderer_targetbridge": "TargetBridge Metal (recommandé)",

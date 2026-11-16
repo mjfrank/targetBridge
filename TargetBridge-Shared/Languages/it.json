@@ -246,6 +246,7 @@
   "receiver.performance.menu": "Prestazioni",
   "receiver.performance.newest_frame": "Disegna solo il fotogramma più recente",
   "receiver.performance.wake_on_data": "Riattiva all’arrivo dei dati",
+  "receiver.performance.save_energy": "Risparmia energia durante l'attesa",
   "receiver.expert.menu": "Renderer (impostazioni avanzate)",
   "receiver.expert.renderer": "Si applica dopo il riavvio del Receiver",
   "receiver.expert.renderer_targetbridge": "TargetBridge Metal (consigliato)",
