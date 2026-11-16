@@ -162,6 +162,10 @@ struct TBDisplaySenderSettingsView: View {
                     }
                 }
 
+                settingsSection(title: TBDisplaySenderL10n.displayProfiles(service.language)) {
+                    TBDisplayProfilesEditor(service: service)
+                }
+
                 settingsSection(title: behaviorTitle) {
                     Text(TBDisplaySenderL10n.settingsHint(service.language))
                         .font(.footnote)

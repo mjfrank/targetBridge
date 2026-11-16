@@ -691,13 +691,18 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
 
                 settingsSection(title: outputSettingsTitle) {
                     settingRow(TBDisplaySenderL10n.displayProfiles(service.language), details: TBDisplaySenderL10n.displayProfilesHint(service.language)) {
-                        HStack(spacing: 8) {
-                            ForEach(TBDisplayProfile.allCases) { profile in
-                                Button(TBDisplaySenderL10n.displayProfileTitle(profile, language: service.language)) {
-                                    service.applyDisplayProfile(profile, to: session)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(service.displayProfiles) { profile in
+                                    Button(profile.title(service.language)) {
+                                        service.applyDisplayProfile(profile, to: session)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .help("\(profile.capturePreset.title(service.language)) · "
+                                          + TBDisplaySenderL10n.codecPreferenceTitle(profile.effectiveCodecPreference,
+                                                                                    language: service.language))
+                                    .disabled(session.isConnected || session.isStreaming)
                                 }
-                                .buttonStyle(.bordered)
-                                .disabled(session.isConnected || session.isStreaming)
                             }
                         }
                     }
