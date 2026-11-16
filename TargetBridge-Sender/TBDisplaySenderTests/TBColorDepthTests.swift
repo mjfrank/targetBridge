@@ -2,6 +2,7 @@ import XCTest
 @testable import TargetBridge
 
 /// Compression is chosen as method + colour depth; each pair maps to one mode.
+@MainActor
 final class TBColorDepthTests: XCTestCase {
     func testEveryModeRoundTripsThroughMethodAndDepth() {
         for preference in TBDisplayCodecPreference.allCases {
