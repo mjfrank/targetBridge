@@ -68,7 +68,7 @@
   "receiver.version.sender_unknown": "L’émetteur utilise une version de TargetBridge antérieure à %{receiver}. Mettez à jour l’émetteur pour profiter de toutes les fonctions de performance.",
   "receiver.version.download": "Télécharger la mise à jour de TargetBridge…",
   "sender.group.display_profiles": "Profils d’affichage",
-  "sender.display_profiles.hint": "Appliquez une configuration prête à l’emploi. TargetBridge mémorise le dernier choix pour ce receiver.",
+  "sender.display_profiles.hint": "Applique une configuration prête à l’emploi, compression et espace colorimétrique compris ; chaque réglage reste modifiable ensuite. TargetBridge mémorise le dernier choix pour ce receiver.",
   "sender.display_profiles.work_5k": "Travail 5K",
   "sender.display_profiles.low_latency": "Faible latence",
   "sender.display_profiles.presentation": "Présentation",

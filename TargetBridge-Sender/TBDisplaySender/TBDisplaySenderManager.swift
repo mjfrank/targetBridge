@@ -707,7 +707,12 @@ final class TBDisplaySenderService: ObservableObject {
         }
     }
 
-    func applyDisplayProfile(_ profile: TBDisplayProfile, to session: TBDisplaySenderSession) {
+    /// Applies a display profile. Clicking one (`includeCompression`) sets
+    /// everything it was designed for, including compression, parallel
+    /// connections and colour space; restoring the remembered profile when a
+    /// Receiver is selected leaves the compression the user chose since.
+    func applyDisplayProfile(_ profile: TBDisplayProfile, to session: TBDisplaySenderSession,
+                             includeCompression: Bool = true) {
         guard !session.isConnected, !session.isStreaming else { return }
 
         let settings = profile.settings
@@ -716,6 +721,11 @@ final class TBDisplaySenderService: ObservableObject {
         session.matchRenderToStream = settings.matchRenderToStream
         if let audioEnabled = settings.audioEnabled {
             session.audioEnabled = audioEnabled
+        }
+        if includeCompression {
+            setCodecPreference(settings.codecPreference, for: session)
+            session.parallelStreams = settings.parallelStreams
+            session.colorSpacePreference = settings.colorSpacePreference
         }
 
         guard let receiverKey = receiverProfileKey(for: session) else { return }
@@ -745,7 +755,7 @@ final class TBDisplaySenderService: ObservableObject {
             return
         }
 
-        applyDisplayProfile(profile, to: session)
+        applyDisplayProfile(profile, to: session, includeCompression: false)
     }
 
     func sessionTitle(for session: TBDisplaySenderSession) -> String {

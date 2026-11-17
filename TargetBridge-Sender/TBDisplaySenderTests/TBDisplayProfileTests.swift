@@ -28,6 +28,15 @@ final class TBDisplayProfileTests: XCTestCase {
         XCTAssertEqual(settings.audioEnabled, true)
     }
 
+    func testEveryProfileUsesItsIntendedCompression() {
+        for profile in TBDisplayProfile.allCases {
+            let settings = profile.settings
+            XCTAssertEqual(settings.codecPreference, .automatic, profile.rawValue)
+            XCTAssertTrue(settings.parallelStreams, profile.rawValue)
+            XCTAssertEqual(settings.colorSpacePreference, .automatic, profile.rawValue)
+        }
+    }
+
     func testAudioPreferenceRepairRestoresOnlyTheAmbiguousDisabledState() {
         XCTAssertTrue(TBDisplaySenderService.restoredAudioEnabled(from: false, repairPending: true))
         XCTAssertFalse(TBDisplaySenderService.restoredAudioEnabled(from: false, repairPending: false))
