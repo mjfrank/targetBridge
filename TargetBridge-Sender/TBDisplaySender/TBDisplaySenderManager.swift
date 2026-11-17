@@ -210,18 +210,34 @@ final class TBDisplaySenderService: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    /// Quits and opens the app again, so macOS applies a permission that was
+    /// just granted. Asking LaunchServices to open the app while it runs only
+    /// activates this copy, so a small helper waits for this process to end
+    /// (at most 30 s) and then opens the app.
     func restartAfterPermissionChange() {
-        let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
-        // LaunchServices calls this on its own queue. A plain closure here
-        // would inherit the main actor and Swift 6 traps when it runs off the
-        // main thread (crash right after "Restart"), so it must be @Sendable.
-        NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { @Sendable _, error in
-            guard error == nil else { return }
-            Task { @MainActor in
-                NSApp.terminate(nil)
-            }
+        let helper = Process()
+        helper.executableURL = URL(fileURLWithPath: "/bin/sh")
+        helper.arguments = ["-c", Self.relaunchScript,
+                            "relaunch", String(ProcessInfo.processInfo.processIdentifier), Bundle.main.bundlePath]
+        do {
+            try helper.run()
+        } catch {
+            NSLog("[TargetBridge] restart helper failed: \(error)")
+            return
         }
+        NSApp.terminate(nil)
     }
+
+    /// $1: the PID to wait for, $2: the app to open.
+    static let relaunchScript = """
+        i=0
+        while kill -0 "$1" 2>/dev/null; do
+          i=$((i + 1))
+          [ "$i" -gt 150 ] && exit 0
+          sleep 0.2
+        done
+        exec /usr/bin/open "$2"
+        """
 
     var anyConnected: Bool {
         sessions.contains { $0.isConnected || $0.isStreaming }
