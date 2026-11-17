@@ -69,7 +69,7 @@
   "receiver.version.download": "Download TargetBridge update…",
   "sender.group.display_profiles": "Display profiles",
   "sender.display_profiles.hint": "Applies a ready-to-use setup, including compression and colour space; you can adjust each setting afterwards. TargetBridge remembers the last choice for this receiver.",
-  "sender.display_profiles.work_5k": "Work 5K",
+  "sender.display_profiles.work_5k": "5K",
   "sender.display_profiles.low_latency": "Low latency",
   "sender.display_profiles.presentation": "Presentation",
   "sender.group.capture_source": "Source",

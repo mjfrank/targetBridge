@@ -93,7 +93,7 @@ role.
 
 Each sender session offers three ready-to-use display profiles before connecting:
 
-- `Work 5K` creates an extended desktop at 5K with render matching enabled.
+- `5K` creates an extended desktop at 5K (48 Hz) with render matching, LZ4, 10-bit dithered shown as 8-bit and parallel connections.
 - `Low latency` mirrors the desktop at 1440p and 60 FPS without audio relay.
 - `Presentation` mirrors the desktop at 1440p with audio relay enabled.
 

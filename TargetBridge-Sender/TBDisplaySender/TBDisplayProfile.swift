@@ -31,7 +31,9 @@ enum TBDisplayProfile: String, CaseIterable, Identifiable, Codable {
                 captureSource: .extendedDesktop,
                 capturePreset: .native5k,
                 matchRenderToStream: true,
-                audioEnabled: nil
+                audioEnabled: nil,
+                codecPreference: .uncompressedEnhanced,
+                parallelStreams: true
             )
         case .lowLatency:
             return TBDisplayProfileSettings(

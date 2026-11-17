@@ -164,6 +164,22 @@ struct TBDisplaySenderApp: App {
         Settings {
             TBDisplaySenderSettingsView(service: service)
                 .frame(minWidth: 760, minHeight: 620)
+                .background(TBResizableWindow())
         }
+        .windowResizability(.contentMinSize)
+    }
+}
+
+/// Makes the hosting window resizable with the mouse. SwiftUI gives the
+/// Settings window a fixed size; the content keeps its minimum size.
+private struct TBResizableWindow: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { view.window?.styleMask.insert(.resizable) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { nsView.window?.styleMask.insert(.resizable) }
     }
 }

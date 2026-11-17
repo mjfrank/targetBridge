@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import AVFoundation
 import Combine
 import Foundation
 import Network
@@ -187,20 +188,60 @@ final class TBDisplaySenderService: ObservableObject {
         showingPermissionAssistant = !CGPreflightScreenCaptureAccess()
     }
 
-    func requestScreenRecordingPermission() {
-        _ = CGRequestScreenCaptureAccess()
+    /// macOS shows its permission prompt only the first time an app asks;
+    /// after that the request calls return without doing anything. So the
+    /// first "Allow" asks macOS, every later one opens the matching page in
+    /// System Settings.
+    private func requestPermission(_ name: String, pane: String, request: () -> Void) {
+        let key = "fd.tbdisplaysender.permissionRequested.\(name)"
+        let askedBefore = UserDefaults.standard.bool(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        request()
+        if askedBefore { openPrivacySettings(pane) }
         refreshPrivacyPermissions()
+    }
+
+    private func openPrivacySettings(_ pane: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func requestScreenRecordingPermission() {
+        requestPermission("screenRecording", pane: "Privacy_ScreenCapture") {
+            _ = CGRequestScreenCaptureAccess()
+        }
     }
 
     func requestAccessibilityPermission() {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-        refreshPrivacyPermissions()
+        requestPermission("accessibility", pane: "Privacy_Accessibility") {
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
     }
 
     func requestInputMonitoringPermission() {
-        _ = CGRequestListenEventAccess()
-        refreshPrivacyPermissions()
+        requestPermission("inputMonitoring", pane: "Privacy_ListenEvent") {
+            _ = CGRequestListenEventAccess()
+        }
+    }
+
+    /// Audio: reading the TargetBridge Audio device counts as microphone
+    /// access for macOS. Asked here so it isn't a surprise at stream start.
+    var microphoneAccessGranted: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    func requestMicrophonePermission() {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { @Sendable _ in
+                Task { @MainActor in TBDisplaySenderService.shared.refreshPrivacyPermissions() }
+            }
+        case .authorized:
+            refreshPrivacyPermissions()
+        default:
+            openPrivacySettings("Privacy_Microphone")
+        }
     }
 
     func openScreenRecordingSettings() {
@@ -225,7 +266,16 @@ final class TBDisplaySenderService: ObservableObject {
             NSLog("[TargetBridge] restart helper failed: \(error)")
             return
         }
-        NSApp.terminate(nil)
+        // The permission window is a sheet; AppKit holds off quitting while a
+        // sheet is open, so the app only quit once it was closed. Close it
+        // (and any other sheet) first, then quit.
+        showingPermissionAssistant = false
+        for window in NSApp.windows {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            NSApp.terminate(nil)
+        }
     }
 
     /// $1: the PID to wait for, $2: the app to open.

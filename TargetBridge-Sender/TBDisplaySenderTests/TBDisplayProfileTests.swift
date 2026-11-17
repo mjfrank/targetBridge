@@ -1,6 +1,7 @@
 import XCTest
 @testable import TargetBridge
 
+@MainActor
 final class TBDisplayProfileTests: XCTestCase {
     func testWork5KUsesAnExtendedNative5KDisplay() {
         let settings = TBDisplayProfile.work5K.settings
@@ -29,11 +30,17 @@ final class TBDisplayProfileTests: XCTestCase {
     }
 
     func testEveryProfileUsesItsIntendedCompression() {
+        let fiveK = TBDisplayProfile.work5K.settings
+        XCTAssertEqual(fiveK.codecPreference, .uncompressedEnhanced)
+        XCTAssertEqual(fiveK.codecPreference.method, .lz4)
+        XCTAssertEqual(fiveK.codecPreference.colorDepth, .tenBitDithered)
+        XCTAssertTrue(fiveK.parallelStreams)
+
+        for profile in [TBDisplayProfile.lowLatency, .presentation] {
+            XCTAssertEqual(profile.settings.codecPreference, .automatic, profile.rawValue)
+        }
         for profile in TBDisplayProfile.allCases {
-            let settings = profile.settings
-            XCTAssertEqual(settings.codecPreference, .automatic, profile.rawValue)
-            XCTAssertTrue(settings.parallelStreams, profile.rawValue)
-            XCTAssertEqual(settings.colorSpacePreference, .automatic, profile.rawValue)
+            XCTAssertEqual(profile.settings.colorSpacePreference, .automatic, profile.rawValue)
         }
     }
 
