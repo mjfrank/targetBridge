@@ -74,7 +74,7 @@ curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar -
         --enable-decoder=h264,hevc \
         --enable-parser=h264,hevc \
         --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox \
-        --arch="$FFMPEG_ARCH" "${FFMPEG_CROSS[@]}" \
+        --arch="$FFMPEG_ARCH" ${FFMPEG_CROSS[@]+"${FFMPEG_CROSS[@]}"} \
         --extra-cflags="-arch $ARCH -mmacosx-version-min=$MIN_OS" \
         --extra-ldflags="-arch $ARCH -mmacosx-version-min=$MIN_OS"
     make -j"$JOBS"
