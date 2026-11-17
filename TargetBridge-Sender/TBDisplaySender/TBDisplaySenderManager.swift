@@ -213,7 +213,7 @@ final class TBDisplaySenderService: ObservableObject {
     /// Quits and opens the app again, so macOS applies a permission that was
     /// just granted. Asking LaunchServices to open the app while it runs only
     /// activates this copy, so a small helper waits for this process to end
-    /// (at most 30 s) and then opens the app.
+    /// (at most 30 s) and then opens the app with its window shown.
     func restartAfterPermissionChange() {
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -236,7 +236,7 @@ final class TBDisplaySenderService: ObservableObject {
           [ "$i" -gt 150 ] && exit 0
           sleep 0.2
         done
-        exec /usr/bin/open "$2"
+        exec /usr/bin/open "$2" --args \(TBAppPresentationController.showWindowArgument)
         """
 
     var anyConnected: Bool {

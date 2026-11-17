@@ -44,12 +44,19 @@ enum TBAppPresentationController {
         return NSApp.windows.filter { $0.title == "TargetBridge" && $0.canBecomeMain }
     }
 
+    /// Passed when the app opens itself again ("Restart" after granting a
+    /// permission), so the window comes back in every app mode.
+    nonisolated static let showWindowArgument = "--show-window"
+
     /// The main window appeared for the first time: at launch, Background and
-    /// Faceless start without it.
+    /// Faceless start without it, unless the window is needed: a permission
+    /// is missing, or the app restarted itself from the permission window.
     static func mainWindowAppeared(_ presentation: TBAppPresentation) {
         guard !handledLaunch else { return }
         handledLaunch = true
         guard presentation != .standard else { return }
+        guard !CommandLine.arguments.contains(showWindowArgument) else { return }
+        guard CGPreflightScreenCaptureAccess(), AXIsProcessTrusted() else { return }
         DispatchQueue.main.async {
             for window in mainWindows() { window.orderOut(nil) }
         }
