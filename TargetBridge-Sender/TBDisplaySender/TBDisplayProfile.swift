@@ -29,7 +29,7 @@ enum TBDisplayProfile: String, CaseIterable, Identifiable, Codable {
         case .work5K:
             return TBDisplayProfileSettings(
                 captureSource: .extendedDesktop,
-                capturePreset: .native5k,
+                capturePreset: .native5k60,
                 matchRenderToStream: true,
                 audioEnabled: nil,
                 codecPreference: .uncompressedEnhanced,

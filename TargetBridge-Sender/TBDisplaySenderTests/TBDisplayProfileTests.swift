@@ -7,7 +7,7 @@ final class TBDisplayProfileTests: XCTestCase {
         let settings = TBDisplayProfile.work5K.settings
 
         XCTAssertEqual(settings.captureSource, .extendedDesktop)
-        XCTAssertEqual(settings.capturePreset, .native5k)
+        XCTAssertEqual(settings.capturePreset, .native5k60)
         XCTAssertTrue(settings.matchRenderToStream)
         XCTAssertNil(settings.audioEnabled)
     }
