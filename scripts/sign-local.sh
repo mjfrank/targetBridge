@@ -93,7 +93,7 @@ sign_app() {
     fi
     /usr/bin/codesign --force --sign "$IDENTITY" "$app"
     /usr/bin/codesign --verify --deep --strict "$app"
-    echo "  ok: $(/usr/bin/codesign -dv "$app" 2>&1 | /usr/bin/grep -E '^Authority=' | /usr/bin/head -n1)"
+    echo "  ok: $(/usr/bin/codesign -dvv "$app" 2>&1 | /usr/bin/grep -E '^Authority=' | /usr/bin/head -n1)"
 }
 
 APPS=()

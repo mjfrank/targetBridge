@@ -212,9 +212,12 @@ final class TBDisplaySenderService: ObservableObject {
 
     func restartAfterPermissionChange() {
         let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
-        NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { _, error in
+        // LaunchServices calls this on its own queue. A plain closure here
+        // would inherit the main actor and Swift 6 traps when it runs off the
+        // main thread (crash right after "Restart"), so it must be @Sendable.
+        NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { @Sendable _, error in
             guard error == nil else { return }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 NSApp.terminate(nil)
             }
         }
