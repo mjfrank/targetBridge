@@ -110,7 +110,7 @@
   "sender.method.dpcm": "DPCM (lossless, full frames, experimental)",
   "sender.depth.label": "Colour depth",
   "sender.depth.eightBit": "8-bit",
-  "sender.depth.tenBitDithered": "10-bit, shown as 8-bit (dithered, experimental)",
+  "sender.depth.tenBitDithered": "10-bit dithered, shown as 8-bit (experimental)",
   "sender.depth.tenBit": "10-bit (experimental)",
   "sender.depth.hint": "10-bit keeps gradients smooth and works with Uncompressed, LZ4 and DPCM; Automatic, H.264 and HEVC are 8-bit. \"Shown as 8-bit\" captures in 10-bit and sends 8-bit with a fine dither pattern, at the 8-bit data rate.",
   "sender.codec.uncompressedDithered": "Uncompressed, 10-bit dithered to 8-bit (experimental)",

@@ -110,7 +110,7 @@
   "sender.method.dpcm": "DPCM (senza perdita, fotogrammi interi, sperimentale)",
   "sender.depth.label": "Profondità colore",
   "sender.depth.eightBit": "8 bit",
-  "sender.depth.tenBitDithered": "10 bit, mostrato a 8 bit (con dithering, sperimentale)",
+  "sender.depth.tenBitDithered": "10 bit con dithering, mostrato a 8 bit (sperimentale)",
   "sender.depth.tenBit": "10 bit (sperimentale)",
   "sender.depth.hint": "I 10 bit mantengono le sfumature uniformi e funzionano con Non compresso, LZ4 e DPCM; Automatico, H.264 e HEVC sono a 8 bit. \"Mostrato a 8 bit\" acquisisce a 10 bit e invia 8 bit con un dithering fine, alla velocità dati degli 8 bit.",
   "sender.codec.uncompressedDithered": "Non compresso, 10 bit con dithering a 8 bit (sperimentale)",

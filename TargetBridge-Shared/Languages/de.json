@@ -110,7 +110,7 @@
   "sender.method.dpcm": "DPCM (verlustfrei, ganze Bilder, experimentell)",
   "sender.depth.label": "Farbtiefe",
   "sender.depth.eightBit": "8 Bit",
-  "sender.depth.tenBitDithered": "10 Bit, als 8 Bit gezeigt (gedithert, experimentell)",
+  "sender.depth.tenBitDithered": "10 Bit gedithert, als 8 Bit gezeigt (experimentell)",
   "sender.depth.tenBit": "10 Bit (experimentell)",
   "sender.depth.hint": "10 Bit hält Verläufe glatt und funktioniert mit Unkomprimiert, LZ4 und DPCM; Automatisch, H.264 und HEVC sind 8 Bit. „Als 8 Bit gezeigt“ erfasst in 10 Bit und sendet 8 Bit mit feinem Dither-Muster, bei der Datenrate von 8 Bit.",
   "sender.codec.uncompressedDithered": "Unkomprimiert, 10 Bit auf 8 Bit gedithert (experimentell)",

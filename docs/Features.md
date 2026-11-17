@@ -41,11 +41,11 @@ Each session sets four things before it starts:
 - **Video compression** (the method): Automatic, H.264, HEVC, Uncompressed, LZ4
   (lossless, changed rows) or DPCM (lossless, full frames). With Automatic, the
   setting shows which codec it uses for the chosen resolution and frame rate.
-- **Colour depth**: 8-bit, 10-bit shown as 8-bit (dithered), or 10-bit.
+- **Colour depth**: 8-bit, 10-bit dithered shown as 8-bit, or 10-bit.
   Combinations a method can't do are greyed out: Automatic, H.264 and HEVC are
   8-bit; DPCM has no dithered variant.
 
-| | 8-bit | 10-bit, shown as 8-bit | 10-bit |
+| | 8-bit | 10-bit dithered, shown as 8-bit | 10-bit |
 |---|---|---|---|
 | Automatic / H.264 / HEVC | ✓ | – | – |
 | Uncompressed | ✓ | ✓ | ✓ |

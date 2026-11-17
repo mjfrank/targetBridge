@@ -110,7 +110,7 @@
   "sender.method.dpcm": "DPCM（无损，完整画面，实验性）",
   "sender.depth.label": "色彩深度",
   "sender.depth.eightBit": "8 位",
-  "sender.depth.tenBitDithered": "10 位，以 8 位显示（抖动，实验性）",
+  "sender.depth.tenBitDithered": "10 位抖动，以 8 位显示（实验性）",
   "sender.depth.tenBit": "10 位（实验性）",
   "sender.depth.hint": "10 位让渐变更平滑，可用于无压缩、LZ4 和 DPCM；自动、H.264 和 HEVC 为 8 位。“以 8 位显示”以 10 位采集，并以精细的抖动图案发送 8 位，数据量与 8 位相同。",
   "sender.codec.uncompressedDithered": "无压缩，10 位抖动为 8 位（实验性）",

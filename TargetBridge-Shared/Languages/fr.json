@@ -110,7 +110,7 @@
   "sender.method.dpcm": "DPCM (sans perte, images entières, expérimental)",
   "sender.depth.label": "Profondeur de couleur",
   "sender.depth.eightBit": "8 bits",
-  "sender.depth.tenBitDithered": "10 bits, affiché en 8 bits (tramé, expérimental)",
+  "sender.depth.tenBitDithered": "10 bits tramé, affiché en 8 bits (expérimental)",
   "sender.depth.tenBit": "10 bits (expérimental)",
   "sender.depth.hint": "Le 10 bits garde les dégradés lisses et fonctionne avec Non compressé, LZ4 et DPCM ; Automatique, H.264 et HEVC sont en 8 bits. « Affiché en 8 bits » capture en 10 bits et envoie du 8 bits avec un tramage fin, au débit du 8 bits.",
   "sender.codec.uncompressedDithered": "Non compressé, 10 bits tramé en 8 bits (expérimental)",
