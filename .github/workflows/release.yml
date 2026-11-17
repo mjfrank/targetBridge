@@ -20,8 +20,11 @@ jobs:
         include:
           - os: macos-15-intel
             arch: x86_64
-          - os: macos-15
+          # Apple Silicon is built on Intel runners: GitHub's Apple Silicon
+          # runners are often unavailable. Tests run in the Intel job.
+          - os: macos-15-intel
             arch: arm64
+            cross: true
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout Code
@@ -77,8 +80,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-15
+          - os: macos-15-intel
             arch: arm64
+            cross: true
             label: AppleSilicon-macOS15-Sequoia-and-later
             max_min_os: "15.0"
           - os: macos-15-intel
@@ -126,6 +130,7 @@ jobs:
           TARGETBRIDGE_RECEIVER_MAX_MIN_OS: ${{ matrix.max_min_os }}
         run: |
           export MACOSX_DEPLOYMENT_TARGET="${{ matrix.max_min_os }}"
+          export TARGETBRIDGE_ARCH="${{ matrix.arch }}"
           export PKG_CONFIG_PATH="$DEPS_PREFIX/lib/pkgconfig"
           export DYLD_FALLBACK_LIBRARY_PATH="$DEPS_PREFIX/lib"
           export TARGETBRIDGE_LIBRARY_DIR="$DEPS_PREFIX/lib"
@@ -138,6 +143,8 @@ jobs:
           REQUIRE_PERSISTENT_SIGNING=0
           [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && REQUIRE_PERSISTENT_SIGNING=1
           APP_BUILD="$TB_BUILD" TARGETBRIDGE_REQUIRE_PERSISTENT_SIGNING="$REQUIRE_PERSISTENT_SIGNING" ./scripts/build_tbreceiver_c_app.sh
+          # Built for the intended processor (also when built on another one).
+          file "../build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver" | grep -q "${{ matrix.arch }}"
 
       - name: Zip App Bundle
         run: |

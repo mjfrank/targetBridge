@@ -22,6 +22,11 @@ case "$ARCH" in
   x86_64) FFMPEG_ARCH=x86_64 ;;
   *) echo "Unsupported ARCH: $ARCH" >&2; exit 1 ;;
 esac
+# Building for the other processor (e.g. Apple Silicon on an Intel Mac).
+FFMPEG_CROSS=()
+if [[ "$ARCH" != "$(uname -m)" ]]; then
+  FFMPEG_CROSS=(--enable-cross-compile --target-os=darwin)
+fi
 SDL2_VERSION="${SDL2_VERSION:-2.30.9}"
 FFMPEG_VERSION="${FFMPEG_VERSION:-7.1}"
 JOBS="$(sysctl -n hw.ncpu)"
@@ -69,7 +74,7 @@ curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar -
         --enable-decoder=h264,hevc \
         --enable-parser=h264,hevc \
         --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox \
-        --arch="$FFMPEG_ARCH" \
+        --arch="$FFMPEG_ARCH" "${FFMPEG_CROSS[@]}" \
         --extra-cflags="-arch $ARCH -mmacosx-version-min=$MIN_OS" \
         --extra-ldflags="-arch $ARCH -mmacosx-version-min=$MIN_OS"
     make -j"$JOBS"

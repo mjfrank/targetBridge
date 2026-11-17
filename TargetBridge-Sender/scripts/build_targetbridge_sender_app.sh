@@ -31,6 +31,11 @@ if [[ -n "${TB_SENDER_BUILD:-}" ]]; then
   BUILD_SETTINGS+=("CURRENT_PROJECT_VERSION=$TB_SENDER_BUILD")
 fi
 
+# TB_SENDER_ARCH builds for another processor (Apple Silicon on Intel).
+if [[ -n "${TB_SENDER_ARCH:-}" ]]; then
+  BUILD_SETTINGS+=("ARCHS=$TB_SENDER_ARCH" "ONLY_ACTIVE_ARCH=NO")
+fi
+
 xcodegen generate
 
 # Package a standalone app, not Xcode's preview executor plus unsigned debug

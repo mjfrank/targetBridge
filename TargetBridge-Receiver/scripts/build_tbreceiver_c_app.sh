@@ -10,7 +10,8 @@ BIN_NAME="TargetBridgeReceiver"
 APP_NAME="TargetBridge Receiver"
 APP_VERSION="${APP_VERSION:-4.0}"
 STAMP="${APP_BUILD:-$(date +%Y%m%d%H%M%S)}"
-ARCH="$(uname -m)"
+# TARGETBRIDGE_ARCH builds for another processor (Apple Silicon on Intel).
+ARCH="${TARGETBRIDGE_ARCH:-$(uname -m)}"
 ICONSET_DIR="$(mktemp -d)"
 ICON_FILE="${ROOT}/TargetBridgeAssets/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 ICNS_PATH="${APP_DIR}/Contents/Resources/TargetBridgeReceiver.icns"
@@ -30,7 +31,7 @@ fi
 
 cd "$ROOT/TBReceiverC"
 make clean
-make APP_VERSION="${APP_VERSION}" APP_BUILD="$STAMP"
+make APP_VERSION="${APP_VERSION}" APP_BUILD="$STAMP" ARCH="$ARCH"
 
 mkdir -p "$BUILD_DIR"
 rm -rf "$APP_DIR"

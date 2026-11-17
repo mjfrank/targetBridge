@@ -14,8 +14,11 @@ jobs:
         include:
           - os: macos-15-intel
             arch: x86_64
-          - os: macos-15
+          # Apple Silicon is built on Intel runners: GitHub's Apple Silicon
+          # runners are often unavailable. Tests run in the Intel job.
+          - os: macos-15-intel
             arch: arm64
+            cross: true
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout Code
@@ -35,7 +38,7 @@ jobs:
       - name: Build Sender App
         run: |
           cd TargetBridge-Sender
-          ./scripts/build_targetbridge_sender_app.sh
+          TB_SENDER_ARCH="${{ matrix.arch }}" ./scripts/build_targetbridge_sender_app.sh
           file ../build/TargetBridge.app/Contents/MacOS/TargetBridge | grep -q "${{ matrix.arch }}"
           file ../build/TargetBridge.app/Contents/PlugIns/TargetBridgeAudio.driver/Contents/MacOS/TargetBridgeAudio | grep -q "${{ matrix.arch }}"
 
@@ -52,6 +55,7 @@ jobs:
           retention-days: 7
 
       - name: Run Sender Unit Tests
+        if: ${{ !matrix.cross }}
         run: |
           cd TargetBridge-Sender
           xcodebuild test -project TargetBridge.xcodeproj -scheme TBDisplaySender -destination 'platform=macOS' -derivedDataPath .build/DerivedData
@@ -63,6 +67,7 @@ jobs:
         run: ruby review-tools/codec_capability_probe.rb
 
       - name: Check Sender Permission Probe
+        if: ${{ !matrix.cross }}
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb sender build/TargetBridge.app/Contents/MacOS/TargetBridge
 
   # Three Receivers, named by processor and lowest supported macOS:
@@ -78,8 +83,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
+          - os: macos-15-intel
             arch: arm64
+            cross: true
             label: AppleSilicon-macOS15-Sequoia-and-later
             max_min_os: "15.0"
           - os: macos-15-intel
@@ -134,6 +140,7 @@ jobs:
           TARGETBRIDGE_RECEIVER_MAX_MIN_OS: ${{ matrix.max_min_os }}
         run: |
           export MACOSX_DEPLOYMENT_TARGET="${{ matrix.max_min_os }}"
+          export TARGETBRIDGE_ARCH="${{ matrix.arch }}"
           export PKG_CONFIG_PATH="$DEPS_PREFIX/lib/pkgconfig"
           export DYLD_FALLBACK_LIBRARY_PATH="$DEPS_PREFIX/lib"
           export TARGETBRIDGE_LIBRARY_DIR="$DEPS_PREFIX/lib"
@@ -145,6 +152,8 @@ jobs:
           fi
           cd TargetBridge-Receiver
           ./scripts/build_tbreceiver_c_app.sh
+          # Built for the intended processor (also when built on another one).
+          file "../build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver" | grep -q "${{ matrix.arch }}"
 
       - name: Show Minimum macOS
         run: |
@@ -166,4 +175,5 @@ jobs:
         run: ruby review-tools/drain_budget_probe.rb
 
       - name: Check Receiver Permission Probe
+        if: ${{ !matrix.cross }}
         run: ruby TargetBridge-Sender/scripts/test_permission_status.rb receiver 'build/TargetBridge Receiver.app/Contents/MacOS/TargetBridgeReceiver'

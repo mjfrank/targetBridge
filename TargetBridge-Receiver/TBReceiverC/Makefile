@@ -26,6 +26,13 @@ CFLAGS   += -O2 -g -Wall -Wextra -Wno-unused-parameter -std=c11
 CFLAGS   += $(shell $(PKG) --cflags libavcodec libavutil libswscale sdl2)
 CFLAGS   += -DTB_RECEIVER_VERSION=\"$(APP_VERSION)\" -DTB_RECEIVER_BUILD=\"$(APP_BUILD)\"
 CFLAGS   += -DTB_LANGUAGE_SOURCE_DIR=\"$(abspath ../../TargetBridge-Shared/Languages)\"
+# Target processor (arm64 / x86_64); empty builds for this Mac. Lets an Intel
+# Mac build the Apple Silicon Receiver (the tests always build for this Mac).
+ARCH     ?=
+ifneq ($(ARCH),)
+CFLAGS   += -arch $(ARCH)
+LDFLAGS  += -arch $(ARCH)
+endif
 # Lossless DPCM codec (TBD2), shared with the Sender (upstream PR #201).
 CODEC_DIR := ../../TargetBridge-Shared/codec
 CFLAGS   += -I$(CODEC_DIR)
