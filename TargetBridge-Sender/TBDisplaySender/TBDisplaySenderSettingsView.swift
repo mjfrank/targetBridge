@@ -150,14 +150,29 @@ struct TBDisplaySenderSettingsView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
 
+                        // What install / remove / restart is doing, then what it did.
+                        if let status = audioDriverStatusText {
+                            HStack(spacing: 8) {
+                                if service.audioDriverBusy {
+                                    ProgressView().controlSize(.small)
+                                }
+                                Text(status)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+
                         if showsAudioRestartHint {
                             Text(audioText("sender.settings.audio_restart_hint"))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text(verbatim: "sudo killall coreaudiod")
-                                .font(.system(.footnote, design: .monospaced))
-                                .textSelection(.enabled)
+                            Button(audioText("sender.settings.restart_audio")) {
+                                service.restartMacAudio()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(service.audioDriverBusy || service.anyConnected)
                         }
                     }
                 }
@@ -251,6 +266,25 @@ struct TBDisplaySenderSettingsView: View {
             }
         } message: {
             Text(importError ?? "")
+        }
+    }
+
+    private var audioDriverStatusText: String? {
+        if let action = service.audioDriverAction {
+            switch action {
+            case .install: return audioText("sender.settings.audio_status.installing")
+            case .remove: return audioText("sender.settings.audio_status.removing")
+            case .restart: return audioText("sender.settings.audio_status.restarting")
+            }
+        }
+        guard let done = service.audioDriverDone else { return nil }
+        switch done {
+        case .install, .restart:
+            return service.audioDeviceName != nil
+                ? audioText("sender.settings.audio_status.ready")
+                : audioText("sender.settings.audio_status.restarted_missing")
+        case .remove:
+            return audioText("sender.settings.audio_status.removed")
         }
     }
 

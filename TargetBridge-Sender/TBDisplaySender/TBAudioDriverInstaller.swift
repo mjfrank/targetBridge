@@ -35,6 +35,9 @@ enum TBAudioDriverInstaller {
         ].joined(separator: " && ")
     }
 
+    /// Restarts macOS audio on its own (button in Settings).
+    static var restartCommand: String { restartCoreAudio }
+
     static var removeCommand: String {
         "/bin/rm -rf \(shellQuoted(installedPath)) && \(restartCoreAudio)"
     }

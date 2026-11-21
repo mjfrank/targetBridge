@@ -39,6 +39,11 @@ struct TBLocalLinkInterface: Identifiable, Hashable {
     }
 }
 
+/// Audio driver buttons in Settings.
+enum TBAudioDriverAction: Equatable {
+    case install, remove, restart
+}
+
 @MainActor
 final class TBDisplaySenderService: ObservableObject {
     static let shared = TBDisplaySenderService()
@@ -136,6 +141,10 @@ final class TBDisplaySenderService: ObservableObject {
     }
     @Published private(set) var audioDriverInstalled = TBAudioDriverInstaller.isInstalled
     @Published private(set) var audioDriverBusy = false
+    /// What the audio driver buttons are doing, then what they did; shown
+    /// under the buttons (install and remove restart macOS audio).
+    @Published private(set) var audioDriverAction: TBAudioDriverAction?
+    @Published private(set) var audioDriverDone: TBAudioDriverAction?
     @Published private(set) var audioDriverError: String?
     @Published private(set) var audioDeviceName: String?
     @Published private(set) var audioDeviceRenameFailed = false
@@ -886,17 +895,24 @@ final class TBDisplaySenderService: ObservableObject {
 
     func installAudioDriver() {
         guard let source = TBAudioDriverInstaller.bundledURL else { return }
-        runAudioDriverCommand(TBAudioDriverInstaller.installCommand(from: source))
+        runAudioDriverCommand(TBAudioDriverInstaller.installCommand(from: source), action: .install)
     }
 
     func removeAudioDriver() {
-        runAudioDriverCommand(TBAudioDriverInstaller.removeCommand)
+        runAudioDriverCommand(TBAudioDriverInstaller.removeCommand, action: .remove)
     }
 
-    private func runAudioDriverCommand(_ command: String) {
+    /// Restarts macOS audio (coreaudiod) without changing the driver.
+    func restartMacAudio() {
+        runAudioDriverCommand(TBAudioDriverInstaller.restartCommand, action: .restart)
+    }
+
+    private func runAudioDriverCommand(_ command: String, action: TBAudioDriverAction) {
         guard !audioDriverBusy else { return }
         audioDriverBusy = true
         audioDriverError = nil
+        audioDriverAction = action
+        audioDriverDone = nil
         Task { @MainActor [weak self] in
             var failure: String?
             do {
@@ -906,9 +922,18 @@ final class TBDisplaySenderService: ObservableObject {
             }
             guard let self else { return }
             self.audioDriverError = failure
-            // coreaudiod needs a moment to come back with the driver loaded.
-            try? await Task.sleep(for: .seconds(2))
+            // coreaudiod needs a moment to come back (with the driver loaded):
+            // wait until the device appears / disappears, at most 8 s.
+            if failure == nil {
+                for _ in 0..<16 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let present = TBAudioLoopbackCapture.deviceName() != nil
+                    if (action == .remove) != present { break }
+                }
+            }
             self.audioDriverBusy = false
+            self.audioDriverAction = nil
+            self.audioDriverDone = failure == nil ? action : nil
             self.refreshAudioDriverStatus()
         }
     }
