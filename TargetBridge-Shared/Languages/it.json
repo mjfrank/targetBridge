@@ -82,7 +82,7 @@
   "receiver.version.sender_unknown": "Il sender usa una versione di TargetBridge precedente alla %{receiver}. Aggiorna il sender per usare tutte le funzioni di prestazione.",
   "receiver.version.download": "Scarica aggiornamento di TargetBridge…",
   "sender.group.display_profiles": "Profili schermo",
-  "sender.display_profiles.hint": "Applica una configurazione pronta, compresi compressione e spazio colore; poi puoi modificare ogni impostazione. TargetBridge ricorda l'ultima scelta per questo Receiver.",
+  "sender.display_profiles.hint": "Applica una configurazione pronta, compresi compressione, latenza e spazio colore; poi puoi modificare ogni impostazione. TargetBridge ricorda l'ultima scelta per questo Receiver.",
   "sender.display_profiles.work_5k": "5K",
   "sender.display_profiles.low_latency": "Bassa latenza",
   "sender.display_profiles.presentation": "Presentazione",

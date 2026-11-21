@@ -15,6 +15,7 @@ struct TBDisplayProfileSettings: Equatable {
     var codecPreference: TBDisplayCodecPreference = .automatic
     var parallelStreams: Bool = true
     var colorSpacePreference: TBVideoColorSpacePreference = .automatic
+    var latencyMode: TBLatencyMode = .standard
 }
 
 enum TBDisplayProfile: String, CaseIterable, Identifiable, Codable {
@@ -33,21 +34,24 @@ enum TBDisplayProfile: String, CaseIterable, Identifiable, Codable {
                 matchRenderToStream: true,
                 audioEnabled: nil,
                 codecPreference: .uncompressedEnhanced,
-                parallelStreams: true
+                parallelStreams: true,
+                latencyMode: .standard
             )
         case .lowLatency:
             return TBDisplayProfileSettings(
                 captureSource: .desktopMirror,
                 capturePreset: .smooth1440p60,
                 matchRenderToStream: false,
-                audioEnabled: nil
+                audioEnabled: nil,
+                latencyMode: .low
             )
         case .presentation:
             return TBDisplayProfileSettings(
                 captureSource: .desktopMirror,
                 capturePreset: .standard1440p,
                 matchRenderToStream: false,
-                audioEnabled: true
+                audioEnabled: true,
+                latencyMode: .balanced
             )
         }
     }

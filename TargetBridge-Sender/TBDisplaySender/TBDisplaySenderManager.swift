@@ -811,6 +811,7 @@ final class TBDisplaySenderService: ObservableObject {
             setCodecPreference(settings.codecPreference, for: session)
             session.parallelStreams = settings.parallelStreams
             session.colorSpacePreference = settings.colorSpacePreference
+            session.latencyMode = settings.latencyMode
         }
 
         guard let receiverKey = receiverProfileKey(for: session) else { return }

@@ -82,7 +82,7 @@
   "receiver.version.sender_unknown": "发送端运行的 TargetBridge 版本早于 %{receiver}。请更新发送端以使用全部性能功能。",
   "receiver.version.download": "下载 TargetBridge 更新…",
   "sender.group.display_profiles": "显示配置",
-  "sender.display_profiles.hint": "一键套用现成的设置，包括压缩方式和色彩空间；之后每项设置都可以再调整。TargetBridge 会记住这台接收端上次的选择。",
+  "sender.display_profiles.hint": "一键套用现成的设置，包括压缩方式、延迟和色彩空间；之后每项设置都可以再调整。TargetBridge 会记住这台接收端上次的选择。",
   "sender.display_profiles.work_5k": "5K",
   "sender.display_profiles.low_latency": "低延迟",
   "sender.display_profiles.presentation": "演示",

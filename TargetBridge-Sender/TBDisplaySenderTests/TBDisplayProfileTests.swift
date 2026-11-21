@@ -42,6 +42,9 @@ final class TBDisplayProfileTests: XCTestCase {
         for profile in TBDisplayProfile.allCases {
             XCTAssertEqual(profile.settings.colorSpacePreference, .automatic, profile.rawValue)
         }
+        XCTAssertEqual(TBDisplayProfile.work5K.settings.latencyMode, .standard)
+        XCTAssertEqual(TBDisplayProfile.lowLatency.settings.latencyMode, .low)
+        XCTAssertEqual(TBDisplayProfile.presentation.settings.latencyMode, .balanced)
     }
 
     func testAudioPreferenceRepairRestoresOnlyTheAmbiguousDisabledState() {
