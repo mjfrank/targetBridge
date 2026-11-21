@@ -590,8 +590,9 @@ enum TBDisplaySenderL10n {
         return hint
     }
 
-    /// Explains the three latency settings for the chosen compression, the
-    /// selected one first, and what the running stream applies.
+    /// Explains the three latency settings for the chosen compression, always
+    /// in the menu's order (Standard, Balanced, Low), and what the running
+    /// stream applies.
     static func latencyDetails(selected: TBLatencyMode,
                                target: TBLatencyTarget,
                                receiverSupportsScaledRows: Bool?,
@@ -604,8 +605,7 @@ enum TBDisplaySenderL10n {
         case .encoder: group = "encoder"
         case .rows: group = "rows"
         }
-        let order = [selected] + TBLatencyMode.allCases.filter { $0 != selected }
-        var lines = order.map { mode in
+        var lines = TBLatencyMode.allCases.map { mode in
             text("sender.latency.\(mode.rawValue)", language) + ": "
                 + text("sender.latency.\(group).\(mode.rawValue)", language)
         }

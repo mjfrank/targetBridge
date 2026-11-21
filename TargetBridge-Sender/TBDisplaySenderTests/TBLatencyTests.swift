@@ -91,13 +91,17 @@ final class TBLatencyTests: XCTestCase {
                                                       streaming: false, language: .english)
         let lines = rows.components(separatedBy: "\n")
         XCTAssertEqual(lines.count, 3)
-        XCTAssertTrue(lines[0].hasPrefix("Balanced: "), lines[0])
-        XCTAssertTrue(lines[0].contains("half resolution"), lines[0])
+        // Always in the menu's order, whichever is selected.
+        XCTAssertTrue(lines[0].hasPrefix("Standard: "), lines[0])
+        XCTAssertTrue(lines[1].hasPrefix("Balanced: "), lines[1])
+        XCTAssertTrue(lines[1].contains("half resolution"), lines[1])
+        XCTAssertTrue(lines[2].hasPrefix("Low: "), lines[2])
 
         let encoder = TBDisplaySenderL10n.latencyDetails(selected: .low, target: .encoder,
                                                          receiverSupportsScaledRows: nil, active: .low,
                                                          streaming: true, language: .english)
-        XCTAssertTrue(encoder.hasPrefix("Low: Apple's real-time"), encoder)
+        XCTAssertTrue(encoder.hasPrefix("Standard: "), encoder)
+        XCTAssertTrue(encoder.contains("Low: Apple's real-time"), encoder)
         XCTAssertTrue(encoder.hasSuffix("Active."), encoder)
 
         let older = TBDisplaySenderL10n.latencyDetails(selected: .low, target: .rows,
