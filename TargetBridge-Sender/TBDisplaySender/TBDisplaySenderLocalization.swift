@@ -590,6 +590,17 @@ enum TBDisplaySenderL10n {
         return hint
     }
 
+    static func lowLatencyDetails(applies: Bool, active: Bool?,
+                                  language: TBDisplaySenderLanguage) -> String {
+        guard applies else { return text("sender.low_latency.not_applicable", language) }
+        let hint = text("sender.low_latency.hint", language)
+        switch active {
+        case true?: return hint + " " + text("sender.low_latency.active", language)
+        case false?: return hint + " " + text("sender.low_latency.unavailable", language)
+        case nil: return hint
+        }
+    }
+
     static func codecUnavailable(_ language: TBDisplaySenderLanguage) -> String {
         text("sender.codec.unavailable", language)
     }

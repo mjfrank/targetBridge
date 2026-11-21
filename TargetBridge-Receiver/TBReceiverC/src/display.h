@@ -106,6 +106,8 @@ void tb_disp_reset_video(struct tb_display *d);
 /* Uncompressed modes on the TargetBridge Metal renderer: 1 = present in step
  * with the display's refresh (no tearing, but the Receiver waits for it). */
 void tb_disp_set_display_sync(struct tb_display *d, int on);
+/* Metal view: queue two drawables instead of three (experimental). */
+void tb_disp_set_low_latency(struct tb_display *d, int on);
 
 /* Whether the renderer keeps 10-bit RGB textures (otherwise SDL converts
  * them to 8 bit on upload). */

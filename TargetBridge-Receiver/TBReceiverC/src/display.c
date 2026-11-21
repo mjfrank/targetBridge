@@ -51,6 +51,7 @@ struct tb_display {
     struct tb_metal_view *metal_view;    /* "TargetBridge Metal" renderer only */
     int           video_in_view;         /* the picture is in the Metal view */
     int           display_sync;          /* raw modes wait for the refresh */
+    int           low_latency;           /* two drawables instead of three */
     int           quit;
     int           window_hidden;
     int           close_hides;
@@ -1366,6 +1367,7 @@ const char *tb_disp_renderer_name(struct tb_display *d) {
 static void tb_disp_use_view(struct tb_display *d, int in_view, int rgb10, int display_sync) {
     if (!d->metal_view) return;
     tb_metal_view_set_display_sync(d->metal_view, display_sync);
+    tb_metal_view_set_low_latency(d->metal_view, d->low_latency);
     tb_metal_view_set_10bit_drawable(d->metal_view, in_view && rgb10);
     d->video_in_view = in_view;
 }
@@ -1550,6 +1552,12 @@ void tb_disp_reset_video(struct tb_display *d) {
 
 void tb_disp_set_display_sync(struct tb_display *d, int on) {
     if (d) d->display_sync = on ? 1 : 0;
+}
+
+void tb_disp_set_low_latency(struct tb_display *d, int on) {
+    if (!d) return;
+    d->low_latency = on ? 1 : 0;
+    if (d->metal_view) tb_metal_view_set_low_latency(d->metal_view, d->low_latency);
 }
 
 int tb_disp_native_rgb10(struct tb_display *d) {

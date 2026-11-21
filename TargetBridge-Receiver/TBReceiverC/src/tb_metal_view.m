@@ -331,6 +331,18 @@ void tb_metal_view_set_10bit_drawable(struct tb_metal_view *v, int on) {
     }
 }
 
+void tb_metal_view_set_low_latency(struct tb_metal_view *v, int on) {
+    TBMetalView *view = tb_view(v);
+    if (!view) return;
+    /* Two drawables instead of three: one frame less queued for the screen
+     * while it waits for the refresh; may stutter sooner under load. */
+    const NSUInteger count = on ? 2 : 3;
+    if (view.layer.maximumDrawableCount != count) {
+        view.layer.maximumDrawableCount = count;
+        fprintf(stderr, "[metal] drawables %lu\n", (unsigned long)count);
+    }
+}
+
 void tb_metal_view_set_display_sync(struct tb_metal_view *v, int on) {
     TBMetalView *view = tb_view(v);
     if (!view) return;

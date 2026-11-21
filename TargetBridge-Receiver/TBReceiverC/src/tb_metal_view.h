@@ -88,6 +88,8 @@ void tb_metal_view_set_10bit_drawable(struct tb_metal_view *v, int on);
 
 /* 1: present in step with the display's refresh (no tearing). */
 void tb_metal_view_set_display_sync(struct tb_metal_view *v, int on);
+/* With display sync: queue two drawables instead of three (experimental). */
+void tb_metal_view_set_low_latency(struct tb_metal_view *v, int on);
 
 /* Forgets the picture, e.g. at the end of a session. */
 void tb_metal_view_reset(struct tb_metal_view *v);

@@ -506,6 +506,7 @@ final class TBDisplaySenderService: ObservableObject {
         var parallelStreams: Bool?
         var keepAlive: Bool?
         var colorSpace: String?
+        var lowLatencyEncoding: Bool?
     }
 
     private var lastPersistedData: Data?
@@ -550,7 +551,8 @@ final class TBDisplaySenderService: ObservableObject {
                 profileCodecPreference: nil,
                 parallelStreams: session.parallelStreams,
                 keepAlive: session.keepAlive,
-                colorSpace: session.colorSpacePreference.rawValue
+                colorSpace: session.colorSpacePreference.rawValue,
+                lowLatencyEncoding: session.lowLatencyEncoding
             )
         }
         guard let data = try? JSONEncoder().encode(configs) else { return }
@@ -658,6 +660,7 @@ final class TBDisplaySenderService: ObservableObject {
         }
         session.parallelStreams = config.parallelStreams ?? true
         session.keepAlive = config.keepAlive ?? false
+        session.lowLatencyEncoding = config.lowLatencyEncoding ?? false
         session.colorSpacePreference = config.colorSpace
             .flatMap(TBVideoColorSpacePreference.init(rawValue:))
             ?? .automatic

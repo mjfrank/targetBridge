@@ -19,7 +19,8 @@ enum tb_background_ui_action {
     TB_BACKGROUND_UI_SIGNIN_UNINSTALL = 1 << 12,
     TB_BACKGROUND_UI_SIGNIN_HELP = 1 << 13,
     TB_BACKGROUND_UI_TOGGLE_ZERO_COPY = 1 << 14,
-    TB_BACKGROUND_UI_TOGGLE_ENERGY_SAVING = 1 << 15
+    TB_BACKGROUND_UI_TOGGLE_ENERGY_SAVING = 1 << 15,
+    TB_BACKGROUND_UI_TOGGLE_LOW_LATENCY = 1 << 16
 };
 
 /* Where "Download update" in the menu bar points. */
@@ -55,7 +56,8 @@ void tb_pref_set_int(const char *key, int value);
 /* renderer: enum tb_disp_renderer (0 TargetBridge Metal, 1 SDL Metal,
  * 2 SDL OpenGL). */
 void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int renderer,
-                                      int display_sync, int stats, int zero_copy, int energy_saving);
+                                      int display_sync, int stats, int zero_copy, int energy_saving,
+                                      int low_latency);
 
 /* Keeps the Dock presence, menu and window checkbox in step with the app. */
 void tb_background_ui_update(int presentation,

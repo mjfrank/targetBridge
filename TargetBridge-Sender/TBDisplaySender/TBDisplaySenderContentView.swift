@@ -823,6 +823,25 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                                   || session.codecPreference.needsParallelStreams)
                     }
 
+                    // Experimental: Apple's real-time rate control for the
+                    // video encoder. Greyed out where no encoder runs.
+                    settingRow(
+                        TBDisplaySenderL10n.text("sender.low_latency.title", service.language),
+                        details: TBDisplaySenderL10n.lowLatencyDetails(
+                            applies: TBDisplaySenderSession.lowLatencyApplies(to: session.codecPreference),
+                            active: session.activeLowLatency,
+                            language: service.language)
+                    ) {
+                        Toggle("", isOn: Binding(
+                            get: { session.lowLatencyEncoding
+                                && TBDisplaySenderSession.lowLatencyApplies(to: session.codecPreference) },
+                            set: { session.lowLatencyEncoding = $0 }
+                        ))
+                        .labelsHidden()
+                        .disabled(session.isConnected || session.isStreaming
+                                  || !TBDisplaySenderSession.lowLatencyApplies(to: session.codecPreference))
+                    }
+
                     settingRow(
                         TBDisplaySenderL10n.colorSpace(service.language),
                         details: TBDisplaySenderL10n.colorSpaceDetails(

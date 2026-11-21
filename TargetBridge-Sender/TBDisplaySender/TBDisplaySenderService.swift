@@ -876,6 +876,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
     /// Colour space the session is labelled with; nil leaves the video
     /// unlabelled, as before (older Receiver or SDL renderer).
     let colorSpace: TBVideoColorSpace?
+    /// Asked for: Apple's low-latency rate control (H.264/HEVC only).
+    private let requestsLowLatency: Bool
+    /// Whether the encoder accepted low-latency rate control; set in `start()`.
+    private(set) var lowLatencyActive = false
     private let onFirstFrame: @Sendable () -> Void
 
     // Confined to `queue`.
@@ -930,6 +934,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
          dpcmTenBit: Bool = true,
          dpcmAdaptiveColor: Bool = false,
          colorSpace: TBVideoColorSpace? = nil,
+         lowLatency: Bool = false,
          ackAlreadySent: Bool,
          onFirstFrame: @escaping @Sendable () -> Void) {
         self.preset = preset
@@ -947,6 +952,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.dpcmTenBit = dpcmTenBit
         self.dpcmAdaptiveColor = self.sendsDPCM && dpcmAdaptiveColor
         self.colorSpace = colorSpace
+        self.requestsLowLatency = lowLatency && !usesRawNV12
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
         self.ackSent = ackAlreadySent
         self.onFirstFrame = onFirstFrame
@@ -1027,10 +1033,6 @@ private final class TBVideoPipeline: @unchecked Sendable {
         vtEncoderRef?.release()
         vtEncoderRef = nil
 
-        let spec: NSDictionary = [
-            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
-            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true
-        ]
         let retained = Unmanaged.passRetained(self)
         vtEncoderRef = retained
 
@@ -1044,19 +1046,44 @@ private final class TBVideoPipeline: @unchecked Sendable {
             }
         }
 
-        var session: VTCompressionSession?
-        guard VTCompressionSessionCreate(
-            allocator: nil,
-            width: Int32(preset.width),
-            height: Int32(preset.height),
-            codecType: codecType,
-            encoderSpecification: spec,
-            imageBufferAttributes: nil,
-            compressedDataAllocator: nil,
-            outputCallback: callback,
-            refcon: retained.toOpaque(),
-            compressionSessionOut: &session
-        ) == noErr, let session else {
+        func create(lowLatency: Bool) -> VTCompressionSession? {
+            var spec: [CFString: Any] = [
+                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
+                kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true
+            ]
+            if lowLatency {
+                // Real-time rate control: even frame sizes, no lookahead.
+                spec[kVTVideoEncoderSpecification_EnableLowLatencyRateControl] = true
+            }
+            var session: VTCompressionSession?
+            let status = VTCompressionSessionCreate(
+                allocator: nil,
+                width: Int32(preset.width),
+                height: Int32(preset.height),
+                codecType: codecType,
+                encoderSpecification: spec as CFDictionary,
+                imageBufferAttributes: nil,
+                compressedDataAllocator: nil,
+                outputCallback: callback,
+                refcon: retained.toOpaque(),
+                compressionSessionOut: &session
+            )
+            return status == noErr ? session : nil
+        }
+
+        lowLatencyActive = false
+        var created: VTCompressionSession?
+        if requestsLowLatency {
+            created = create(lowLatency: true)
+            if created != nil {
+                lowLatencyActive = true
+            } else {
+                // Not every Mac and codec offers it; the normal encoder still works.
+                NSLog("[TBVideoPipeline] low-latency rate control not available; using the normal encoder")
+            }
+        }
+        if created == nil { created = create(lowLatency: false) }
+        guard let session = created else {
             retained.release()
             vtEncoderRef = nil
             return
@@ -1456,7 +1483,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
             accepted: true,
             displayName: displayName,
             displayID: displayID,
-            colorSpace: colorSpace?.rawValue
+            colorSpace: colorSpace?.rawValue,
+            lowLatency: lowLatencyActive ? true : nil
         )
     }
 
@@ -1918,6 +1946,20 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if compression == .automatic { return false }
         return chosen
     }
+    /// Low-latency encoding (experimental): Apple's real-time rate control
+    /// for H.264/HEVC. Has no effect on the uncompressed, LZ4 and DPCM modes.
+    @Published var lowLatencyEncoding: Bool = false
+    /// Whether the running stream uses it; nil while not streaming.
+    @Published private(set) var activeLowLatency: Bool?
+
+    /// Low-latency encoding applies only where a video encoder runs.
+    static func lowLatencyApplies(to compression: TBDisplayCodecPreference) -> Bool {
+        switch compression {
+        case .automatic, .h264, .hevc: return true
+        default: return false
+        }
+    }
+
     /// Colour space of the virtual display and video (experimental).
     @Published var colorSpacePreference: TBVideoColorSpacePreference = .automatic
     /// What the running session uses; nil while not streaming or when the
@@ -2554,6 +2596,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         pipeline?.stop()
         pipeline = nil
         activeColorSpace = nil
+        activeLowLatency = nil
         for dataConnection in dataConnections {
             dataConnection.stateUpdateHandler = nil
             dataConnection.cancel()
@@ -3570,6 +3613,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 dpcmTenBit: dpcmTenBit,
                 dpcmAdaptiveColor: sendsDPCM && profile.supportsDPCMAdaptiveColor == true,
                 colorSpace: activeColorSpace,
+                lowLatency: lowLatencyEncoding && Self.lowLatencyApplies(to: effectiveCodecPreference),
                 ackAlreadySent: sessionAckSent,
                 onFirstFrame: { [weak self] in
                     Task { @MainActor in self?.handleFirstEncodedFrame() }
@@ -3577,6 +3621,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
             guard pipeline.start() else { return false }
             self.pipeline = pipeline
+            activeLowLatency = usesRawNV12 ? nil : pipeline.lowLatencyActive
             TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public) rawNV12=\(usesRawNV12, privacy: .public) rawRegions=\(usesRawRegions, privacy: .public)")
 
             let display: SCDisplay

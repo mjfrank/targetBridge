@@ -129,6 +129,8 @@ struct app {
     int      perf_wake_on_data;
     int      video_renderer;   /* enum tb_disp_renderer, applies at start */
     int      display_sync;     /* Metal: raw modes wait for the refresh */
+    int      low_latency;      /* Metal: two drawables instead of three */
+    int      sender_low_latency; /* the Sender's encoder runs in low-latency mode */
     int      perf_show_stats;
     int      perf_zero_copy;   /* Metal: decoded frames shown without a copy (experimental) */
     int      energy_saving;    /* sleep while waiting, background priority (default on) */
@@ -1606,6 +1608,10 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
                 : TB_COLOR_SPACE_UNMANAGED;
             tb_disp_set_color_space(a->disp, a->color_space);
             fprintf(stderr, "[main] video colour space: %s\n", tb_color_space_title(a->color_space));
+            /* Shown in the statistics only; older Senders leave it out. */
+            int low_latency = 0;
+            a->sender_low_latency =
+                extract_json_bool_field(payload, len, "\"lowLatency\"", &low_latency) && low_latency;
         }
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.session_accepted_waiting_frames");
         break;
@@ -2547,6 +2553,7 @@ static void close_client(struct app *a) {
     tb_disp_reset_video(a->disp);
     a->color_space = TB_COLOR_SPACE_UNMANAGED;
     tb_disp_set_color_space(a->disp, a->color_space);
+    a->sender_low_latency = 0;
     tb_raw_frame_free(&a->raw_frame);
     close_data_streams(a);
     a->stream_token[0] = '\0';
@@ -2754,6 +2761,8 @@ int main(int argc, char **argv) {
     a.disp = tb_disp_create(fullscreen, !a.window_requested, a.video_renderer);
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
     tb_disp_set_display_sync(a.disp, a.display_sync);
+    a.low_latency = tb_pref_get("metalLowLatency", 0);
+    tb_disp_set_low_latency(a.disp, a.low_latency);
     if (a.signin_mode) {
         tb_disp_set_end_session_gestures(a.disp, 1);
         tb_signin_prepare_windows();
@@ -2870,6 +2879,11 @@ int main(int argc, char **argv) {
             tb_pref_set("metalDisplaySync", a.display_sync);
             tb_disp_set_display_sync(a.disp, a.display_sync);
         }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_LOW_LATENCY) {
+            a.low_latency = !a.low_latency;
+            tb_pref_set("metalLowLatency", a.low_latency);
+            tb_disp_set_low_latency(a.disp, a.low_latency);
+        }
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_STATS) {
             a.perf_show_stats = !a.perf_show_stats;
             tb_pref_set("perfShowStats", a.perf_show_stats);
@@ -2887,7 +2901,7 @@ int main(int argc, char **argv) {
         }
         tb_background_ui_set_performance(a.perf_newest_frame, a.perf_wake_on_data,
                                          a.video_renderer, a.display_sync, a.perf_show_stats,
-                                         a.perf_zero_copy, a.energy_saving);
+                                         a.perf_zero_copy, a.energy_saving, a.low_latency);
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
             a.show_window_at_start = !a.show_window_at_start;
             tb_show_window_at_start_save(a.show_window_at_start);
@@ -3165,7 +3179,7 @@ int main(int argc, char **argv) {
                              : tb_disp_native_rgb10(a.disp) ? " | 10-bit RGB" : " | 10-bit RGB shown as 8-bit");
             }
             snprintf(stats, sizeof(stats),
-                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s%s%s | %s | %s",
+                     "%llu fps | %llu skipped | draw %.1f ms (max %.1f) | %.0f Mbit/s%s%s%s | %s | %s",
                      (unsigned long long)df,
                      (unsigned long long)a.stats_skipped,
                      draw_avg_ms,
@@ -3173,6 +3187,7 @@ int main(int argc, char **argv) {
                      (double)a.stats_bytes * 8.0 / 1000000.0,
                      changed,
                      video_path,
+                     a.sender_low_latency ? " | low-latency encoder" : "",
                      tb_color_space_title(a.color_space),
                      tb_disp_renderer_name(a.disp));
             if (df > 0) fprintf(stderr, "[main] %s\n", stats);

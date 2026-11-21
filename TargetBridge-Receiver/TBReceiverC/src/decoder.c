@@ -277,6 +277,10 @@ static int open_decoder(struct tb_decoder *d) {
         }
     }
 
+    /* The Sender never reorders frames; output each one as soon as it is
+     * decoded instead of waiting for a possible reorder. */
+    d->ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+
     /* Install extradata so FFmpeg knows VPS/SPS/PPS up front. */
     if (d->extradata && d->extradata_size > 0) {
         d->ctx->extradata =

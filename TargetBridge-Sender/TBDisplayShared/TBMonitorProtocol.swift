@@ -98,6 +98,9 @@ struct TBMonitorCreateSessionAck: Codable {
     /// Colour space of the video ("srgb" / "displayP3"); absent when the
     /// session is not colour-labelled.
     var colorSpace: String? = nil
+    /// true when the encoder runs with low-latency rate control; absent
+    /// otherwise. Shown in the Receiver's statistics only.
+    var lowLatency: Bool? = nil
 }
 
 struct TBMonitorUILanguageUpdate: Codable {
