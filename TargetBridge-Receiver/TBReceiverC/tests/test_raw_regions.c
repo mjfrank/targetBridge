@@ -211,6 +211,75 @@ int main(void) {
         CHECK(tb_raw_regions_apply(&frame, w.buf, w.len, fake_decode, NULL) == -1, "unknown format rejected");
     }
 
+    /* Scaled bands (latency setting): carried at half or quarter size and
+     * enlarged into the frame. */
+    {
+        struct tb_raw_frame f = {0};
+        struct tb_raw_regions_result result;
+        struct writer w;
+
+        /* NV12 8x8, rows 0..8 at half size: 4x4 Y, then 2 CbCr rows of 4 bytes. */
+        header(&w, 0, 8, 8, 1);
+        band_entry(&w, 0, 8, 4 * 4 + 4 * 2, TB_RAW_REGIONS_ENCODING_RAW | 0x10);
+        for (int r = 0; r < 4; ++r)
+            for (int x = 0; x < 4; ++x) put8(&w, (uint8_t)(10 * r + x));
+        for (int r = 0; r < 2; ++r)
+            for (int c = 0; c < 2; ++c) { put8(&w, (uint8_t)(100 + 10 * r + c)); put8(&w, (uint8_t)(200 + 10 * r + c)); }
+        CHECK(tb_raw_regions_apply(&f, w.buf, w.len, fake_decode, &result) == 0, "half-size NV12 band applies");
+        CHECK(result.scaled_rows == 8 && result.rows == 8, "scaled rows reported");
+        CHECK(f.y[0] == 0 && f.y[1] == 0 && f.y[2] == 1 && f.y[7] == 3, "Y pixels doubled across");
+        CHECK(f.y[8 * 1 + 2] == 1 && f.y[8 * 2 + 0] == 10 && f.y[8 * 7 + 7] == 33, "Y rows doubled down");
+        CHECK(f.uv[0] == 100 && f.uv[1] == 200 && f.uv[2] == 100 && f.uv[4] == 101 && f.uv[5] == 201,
+              "CbCr pairs doubled across");
+        CHECK(f.uv[8 * 1 + 0] == 100 && f.uv[8 * 2 + 0] == 110 && f.uv[8 * 3 + 6] == 111,
+              "CbCr rows doubled down");
+
+        /* Quarter size, LZ4: 8x8 rows carried as 2x2 Y and one CbCr row of 2 bytes. */
+        header(&w, 0, 8, 8, 1);
+        band_entry(&w, 0, 8, 2 * 2 + 2, TB_RAW_REGIONS_ENCODING_LZ4 | 0x20);
+        const uint8_t quarter[6] = { 1, 2, 3, 4, 50, 60 };
+        for (int i = 0; i < 6; ++i) put8(&w, (uint8_t)~quarter[i]);
+        CHECK(tb_raw_regions_apply(&f, w.buf, w.len, fake_decode, &result) == 0, "quarter-size LZ4 band applies");
+        CHECK(f.y[0] == 1 && f.y[3] == 1 && f.y[4] == 2 && f.y[8 * 3 + 7] == 2 && f.y[8 * 4] == 3 && f.y[63] == 4,
+              "quarter-size Y enlarged 4x");
+        CHECK(f.uv[0] == 50 && f.uv[1] == 60 && f.uv[6] == 50 && f.uv[8 * 3 + 7] == 60, "quarter-size CbCr enlarged");
+
+        /* Full-size rows replace the enlarged ones (the Sender's refinement). */
+        header(&w, 0, 8, 8, 1);
+        band_entry(&w, 0, 2, 8 * 2 + 8, TB_RAW_REGIONS_ENCODING_RAW);
+        band_data(&w, 8, 2, 77, 88, 0);
+        CHECK(tb_raw_regions_apply(&f, w.buf, w.len, fake_decode, NULL) == 0 && f.y[0] == 77 && f.y[15] == 77
+              && f.y[16] == 1, "full-size rows refine a scaled band");
+
+        /* Misaligned or unknown scales are rejected. */
+        header(&w, 0, 8, 8, 1);
+        band_entry(&w, 2, 4, 2 * 2 + 2, TB_RAW_REGIONS_ENCODING_RAW | 0x10);
+        CHECK(tb_raw_regions_apply(&f, w.buf, w.len, fake_decode, NULL) == -1, "half-size band off a 4-row grid rejected");
+        header(&w, 0, 12, 8, 1);
+        band_entry(&w, 0, 8, 6 * 4 + 6 * 2, TB_RAW_REGIONS_ENCODING_RAW | 0x20);
+        CHECK(tb_raw_regions_apply(&f, w.buf, w.len, fake_decode, NULL) == -1, "quarter size with width not divisible by 8 rejected");
+        header(&w, 0, 8, 8, 1);
+        band_entry(&w, 0, 8, 8, TB_RAW_REGIONS_ENCODING_RAW | 0x30);
+        CHECK(tb_raw_regions_apply(&f, w.buf, w.len, fake_decode, NULL) == -1, "scale shift 3 rejected");
+
+        /* RGB10 at half size. */
+        header(&w, 0, 4, 4, 1);
+        w.buf[0] = TB_RAW_REGIONS_FORMAT_RGB10;
+        band_entry(&w, 0, 4, 2 * 2 * 4, TB_RAW_REGIONS_ENCODING_RAW | 0x10);
+        const uint32_t px[4] = { 0xC0000001u, 0xC0000002u, 0xC0000003u, 0xC0000004u };
+        for (int i = 0; i < 4; ++i) {
+            put8(&w, (uint8_t)px[i]); put8(&w, (uint8_t)(px[i] >> 8));
+            put8(&w, (uint8_t)(px[i] >> 16)); put8(&w, (uint8_t)(px[i] >> 24));
+        }
+        CHECK(tb_raw_regions_apply(&f, w.buf, w.len, fake_decode, NULL) == 0, "half-size RGB10 band applies");
+        const uint32_t *p = (const uint32_t *)f.y;
+        CHECK(p[0] == px[0] && p[1] == px[0] && p[2] == px[1] && p[4] == px[0] && p[8] == px[2] && p[15] == px[3],
+              "RGB10 pixels enlarged");
+
+        tb_raw_frame_free(&f);
+        tb_raw_frame_free(&f);
+    }
+
     tb_raw_frame_free(&frame);
     CHECK(frame.y == NULL && frame.uv == NULL && frame.w == 0, "frame freed");
 

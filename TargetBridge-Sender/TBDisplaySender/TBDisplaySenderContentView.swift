@@ -823,23 +823,31 @@ private struct TBDisplaySenderSessionSettingsSheet: View {
                                   || session.codecPreference.needsParallelStreams)
                     }
 
-                    // Experimental: Apple's real-time rate control for the
-                    // video encoder. Greyed out where no encoder runs.
+                    // Experimental: what happens when a large change would take
+                    // long to arrive. The text explains it for the compression.
                     settingRow(
-                        TBDisplaySenderL10n.text("sender.low_latency.title", service.language),
-                        details: TBDisplaySenderL10n.lowLatencyDetails(
-                            applies: TBDisplaySenderSession.lowLatencyApplies(to: session.codecPreference),
-                            active: session.activeLowLatency,
+                        TBDisplaySenderL10n.text("sender.latency.title", service.language),
+                        details: TBDisplaySenderL10n.latencyDetails(
+                            selected: session.latencyMode,
+                            target: TBLatencyTarget.of(session.codecPreference),
+                            receiverSupportsScaledRows: session.receiverSupportsScaledRows,
+                            active: session.activeLatency,
+                            streaming: session.isStreaming,
                             language: service.language)
                     ) {
-                        Toggle("", isOn: Binding(
-                            get: { session.lowLatencyEncoding
-                                && TBDisplaySenderSession.lowLatencyApplies(to: session.codecPreference) },
-                            set: { session.lowLatencyEncoding = $0 }
-                        ))
+                        Picker("", selection: Binding(
+                            get: { session.latencyMode },
+                            set: { session.latencyMode = $0 }
+                        )) {
+                            ForEach(TBLatencyMode.allCases) { mode in
+                                Text(TBDisplaySenderL10n.text("sender.latency.\(mode.rawValue)", service.language))
+                                    .tag(mode)
+                            }
+                        }
                         .labelsHidden()
+                        .fixedSize()
                         .disabled(session.isConnected || session.isStreaming
-                                  || !TBDisplaySenderSession.lowLatencyApplies(to: session.codecPreference))
+                                  || TBLatencyTarget.of(session.codecPreference) == .none)
                     }
 
                     settingRow(

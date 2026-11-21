@@ -130,7 +130,8 @@ struct app {
     int      video_renderer;   /* enum tb_disp_renderer, applies at start */
     int      display_sync;     /* Metal: raw modes wait for the refresh */
     int      low_latency;      /* Metal: two drawables instead of three */
-    int      sender_low_latency; /* the Sender's encoder runs in low-latency mode */
+    char     sender_latency[16]; /* latency setting the Sender applies ("" = standard) */
+    uint64_t stats_scaled_packets; /* raw packets with rows at reduced size */
     int      perf_show_stats;
     int      perf_zero_copy;   /* Metal: decoded frames shown without a copy (experimental) */
     int      energy_saving;    /* sleep while waiting, background priority (default on) */
@@ -1335,6 +1336,7 @@ static void handle_raw_regions(struct app *a, const uint8_t *p, size_t len, int 
     }
     a->have_video_frame = 1;
     a->stats_region_rows += result.rows;
+    if (result.scaled_rows) a->stats_scaled_packets++;
     if (result.format == TB_RAW_REGIONS_FORMAT_RGB10) a->stats_rgb10_frames++;
     a->stats_region_height += result.h;
 
@@ -1609,9 +1611,9 @@ static void on_packet(uint8_t type, const uint8_t *payload, size_t len, void *ud
             tb_disp_set_color_space(a->disp, a->color_space);
             fprintf(stderr, "[main] video colour space: %s\n", tb_color_space_title(a->color_space));
             /* Shown in the statistics only; older Senders leave it out. */
-            int low_latency = 0;
-            a->sender_low_latency =
-                extract_json_bool_field(payload, len, "\"lowLatency\"", &low_latency) && low_latency;
+            a->sender_latency[0] = '\0';
+            extract_json_string_field(payload, len, "\"latency\"", a->sender_latency,
+                                      sizeof(a->sender_latency));
         }
         tb_copy_i18n(a->status_text, sizeof(a->status_text), "receiver.status.session_accepted_waiting_frames");
         break;
@@ -2446,7 +2448,7 @@ static void send_receiver_info(struct app *a) {
         "{\"receiverName\":\"%s\",\"panelWidth\":%u,\"panelHeight\":%u,"
         "\"modeWidth\":%u,\"modeHeight\":%u,\"refreshRate\":60,"
         "\"hiDPI\":%s,\"captureWidth\":%u,\"captureHeight\":%u,"
-        "\"supportsHEVCDecode\":%s,\"supportsHEVCSoftwareDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsRawRGB10\":%s,"
+        "\"supportsHEVCDecode\":%s,\"supportsHEVCSoftwareDecode\":%s,\"supportsRawNV12\":true,\"supportsRawRegions\":true,\"supportsRawLZ4\":true,\"supportsScaledRows\":true,\"supportsRawRGB10\":%s,"
         "\"appVersion\":\"" TB_RECEIVER_VERSION "\",\"rawDataStreams\":%d,\"streamToken\":\"%s\",\"inputMonitoringTrusted\":%s,\"accessibilityTrusted\":%s,"
         "\"supportsNightShift\":%s,\"supportsTrueTone\":%s,"
         "\"supportsColorSpaceTags\":%s,\"panelColorSpace\":\"%s\","
@@ -2553,7 +2555,7 @@ static void close_client(struct app *a) {
     tb_disp_reset_video(a->disp);
     a->color_space = TB_COLOR_SPACE_UNMANAGED;
     tb_disp_set_color_space(a->disp, a->color_space);
-    a->sender_low_latency = 0;
+    a->sender_latency[0] = '\0';
     tb_raw_frame_free(&a->raw_frame);
     close_data_streams(a);
     a->stream_token[0] = '\0';
@@ -3161,6 +3163,12 @@ int main(int argc, char **argv) {
             char stats[384];
             char changed[64] = "";
             char video_path[64] = "";
+            char latency[64] = "";
+            if (a.sender_latency[0]) {
+                snprintf(latency, sizeof(latency), " | latency %s%s", a.sender_latency,
+                         a.stats_scaled_packets ? " (simplified)" : "");
+            }
+            a.stats_scaled_packets = 0;
             /* Decoded video: how it reached the screen, and its colour space. */
             if (a.stats_dpcm_frames) {
                 snprintf(video_path, sizeof(video_path), " | DPCM lossless");
@@ -3187,7 +3195,7 @@ int main(int argc, char **argv) {
                      (double)a.stats_bytes * 8.0 / 1000000.0,
                      changed,
                      video_path,
-                     a.sender_low_latency ? " | low-latency encoder" : "",
+                     latency,
                      tb_color_space_title(a.color_space),
                      tb_disp_renderer_name(a.disp));
             if (df > 0) fprintf(stderr, "[main] %s\n", stats);

@@ -85,6 +85,8 @@ struct TBMonitorDisplayProfile: Codable {
     var supportsDPCM: Bool?
     /// It also understands TBD2's adaptive colour extension.
     var supportsDPCMAdaptiveColor: Bool?
+    /// Can enlarge changed rows sent at half or quarter size (latency setting).
+    var supportsScaledRows: Bool?
 }
 
 struct TBMonitorDataStreamHello: Codable {
@@ -98,9 +100,9 @@ struct TBMonitorCreateSessionAck: Codable {
     /// Colour space of the video ("srgb" / "displayP3"); absent when the
     /// session is not colour-labelled.
     var colorSpace: String? = nil
-    /// true when the encoder runs with low-latency rate control; absent
-    /// otherwise. Shown in the Receiver's statistics only.
-    var lowLatency: Bool? = nil
+    /// Latency setting the stream applies ("balanced" / "low"); absent for
+    /// standard. Shown in the Receiver's statistics only.
+    var latency: String? = nil
 }
 
 struct TBMonitorUILanguageUpdate: Codable {

@@ -17,7 +17,8 @@ struct tb_raw_band {
     uint32_t first_row;
     uint32_t rows;
     uint32_t length;
-    uint8_t  encoding;
+    uint8_t  encoding;  /* without the scale bits */
+    uint8_t  shift;     /* scale: the band is carried at 1/2^shift size */
     size_t   offset;    /* of the band data in the payload */
 };
 
@@ -60,6 +61,14 @@ static size_t tb_raw_row_bytes(uint8_t format, size_t w) {
 
 static size_t tb_raw_uv_row_bytes(uint8_t format, size_t w) {
     return format == TB_RAW_REGIONS_FORMAT_RGB10 ? 0 : w;
+}
+
+/* Bytes of a decoded band: rows of the main plane, then (NV12) CbCr rows,
+ * at the band's carried size. */
+static size_t tb_raw_band_bytes(uint8_t format, size_t w, uint32_t rows, uint8_t shift) {
+    const size_t sw = w >> shift;
+    const size_t sr = (size_t)rows >> shift;
+    return tb_raw_row_bytes(format, sw) * sr + tb_raw_uv_row_bytes(format, sw) * (sr / 2);
 }
 
 /* Plane memory the GPU can read in place: 16 KiB aligned, size rounded up. */
@@ -137,15 +146,61 @@ static void tb_raw_copy_band(struct tb_raw_apply_job *job, const struct tb_raw_b
     }
 }
 
+/* Enlarges a band carried at 1/2^shift size into the frame (each pixel
+ * repeated), row pair by row pair like tb_raw_copy_band. */
+static void tb_raw_copy_scaled_band(struct tb_raw_apply_job *job, const struct tb_raw_band *band,
+                                    const uint8_t *src) {
+    struct tb_raw_frame *frame = job->frame;
+    const uint32_t shift = band->shift;
+    const size_t w = frame->w;
+    const size_t sw = w >> shift;
+    const size_t row = tb_raw_row_bytes(frame->format, w);
+    const size_t uv_row = tb_raw_uv_row_bytes(frame->format, w);
+    const size_t src_row = tb_raw_row_bytes(frame->format, sw);
+    const size_t src_uv_row = tb_raw_uv_row_bytes(frame->format, sw);
+    const size_t src_y_bytes = src_row * (band->rows >> shift);
+    const uint32_t first_pair = band->first_row / 2;
+
+    for (uint32_t pair = 0; pair < band->rows / 2; ++pair) {
+        if (job->seq != 0) {
+            uint32_t *last = &frame->row_seq[first_pair + pair];
+            if (!tb_raw_seq_newer(job->seq, *last)) continue;
+            *last = job->seq;
+        }
+        for (uint32_t k = 0; k < 2; ++k) {
+            const uint32_t r = 2 * pair + k;          /* row within the band */
+            const uint8_t *s_row = src + src_row * (r >> shift);
+            uint8_t *d_row = frame->y + row * (band->first_row + r);
+            if (frame->format == TB_RAW_REGIONS_FORMAT_RGB10) {
+                const uint32_t *sp = (const uint32_t *)(const void *)s_row;
+                uint32_t *dp = (uint32_t *)(void *)d_row;
+                for (size_t x = 0; x < w; ++x) dp[x] = sp[x >> shift];
+            } else {
+                for (size_t x = 0; x < w; ++x) d_row[x] = s_row[x >> shift];
+            }
+        }
+        if (frame->uv && uv_row) {
+            /* One CbCr row per row pair; CbCr come in pairs per 2 pixels. */
+            const uint8_t *s_uv = src + src_y_bytes + src_uv_row * (pair >> shift);
+            uint8_t *d_uv = frame->uv + uv_row * (first_pair + pair);
+            for (size_t c = 0; c < w / 2; ++c) {
+                const size_t sc = c >> shift;
+                d_uv[2 * c] = s_uv[2 * sc];
+                d_uv[2 * c + 1] = s_uv[2 * sc + 1];
+            }
+        }
+    }
+}
+
 static void tb_raw_apply_band(struct tb_raw_apply_job *job, size_t index) {
     const struct tb_raw_band *band = &job->bands[index];
-    const size_t decoded_size =
-        tb_raw_row_bytes(job->frame->format, job->frame->w) * band->rows +
-        tb_raw_uv_row_bytes(job->frame->format, job->frame->w) * (band->rows / 2);
+    const size_t decoded_size = tb_raw_band_bytes(job->frame->format, job->frame->w,
+                                                  band->rows, band->shift);
     const uint8_t *src = job->payload + band->offset;
 
     if (band->encoding == TB_RAW_REGIONS_ENCODING_RAW) {
-        tb_raw_copy_band(job, band, src);
+        if (band->shift) tb_raw_copy_scaled_band(job, band, src);
+        else tb_raw_copy_band(job, band, src);
         return;
     }
 
@@ -155,7 +210,8 @@ static void tb_raw_apply_band(struct tb_raw_apply_job *job, size_t index) {
         job->failed = 1;
         return;
     }
-    tb_raw_copy_band(job, band, decoded);
+    if (band->shift) tb_raw_copy_scaled_band(job, band, decoded);
+    else tb_raw_copy_band(job, band, decoded);
     free(decoded);
 }
 
@@ -193,6 +249,7 @@ static int tb_raw_regions_apply_seq(struct tb_raw_frame *frame,
     uint32_t first_row = h;
     uint32_t end_row = 0;
     uint32_t rows_total = 0;
+    uint32_t scaled_rows = 0;
     int compressed = 0;
     int ok = 1;
     for (uint16_t i = 0; i < count && ok; ++i) {
@@ -202,13 +259,18 @@ static int tb_raw_regions_apply_seq(struct tb_raw_frame *frame,
         band->first_row = be32(entry);
         band->rows = be32(entry + 4);
         band->length = be32(entry + 8);
-        band->encoding = entry[12];
+        band->encoding = entry[12] & TB_RAW_REGIONS_ENCODING_MASK;
+        band->shift = (uint8_t)TB_RAW_REGIONS_SCALE_SHIFT(entry[12]);
         band->offset = offset;
 
-        const size_t decoded_size = tb_raw_row_bytes(format, w) * band->rows +
-                                    tb_raw_uv_row_bytes(format, w) * (band->rows / 2);
+        /* A scaled band needs rows and width divisible by 2^(shift+1), so
+         * the carried picture still has whole NV12 row pairs. */
+        const uint32_t align = 2u << band->shift;
+        const size_t decoded_size = tb_raw_band_bytes(format, w, band->rows, band->shift);
         if (band->rows == 0 || (band->first_row & 1) || (band->rows & 1) ||
-            band->first_row >= h || band->rows > h - band->first_row) {
+            band->first_row >= h || band->rows > h - band->first_row ||
+            (entry[12] & 0xC0) || band->shift > TB_RAW_REGIONS_MAX_SCALE_SHIFT ||
+            (band->shift && ((band->first_row % align) || (band->rows % align) || (w % align)))) {
             ok = 0;
         } else if (band->encoding == TB_RAW_REGIONS_ENCODING_RAW) {
             if (band->length != decoded_size) ok = 0;
@@ -223,6 +285,7 @@ static int tb_raw_regions_apply_seq(struct tb_raw_frame *frame,
 
         offset += band->length;
         rows_total += band->rows;
+        if (band->shift) scaled_rows += band->rows;
         if (band->first_row < first_row) first_row = band->first_row;
         if (band->first_row + band->rows > end_row) end_row = band->first_row + band->rows;
     }
@@ -256,6 +319,7 @@ static int tb_raw_regions_apply_seq(struct tb_raw_frame *frame,
         out->compressed = compressed;
         out->sequence = seq;
         out->parts = payload[12];
+        out->scaled_rows = scaled_rows;
     }
     return job.failed ? -2 : 0;
 }

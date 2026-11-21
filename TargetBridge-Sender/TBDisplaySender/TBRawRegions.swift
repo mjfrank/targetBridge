@@ -67,6 +67,17 @@ enum TBRawRegionPlanner {
         return merged
     }
 
+    /// Widens spans to multiples of `alignment` rows (for rows sent at
+    /// reduced size) and merges them; nil if the frame height isn't a multiple.
+    static func aligned(_ spans: [TBRawRowSpan], to alignment: Int, height: Int) -> [TBRawRowSpan]? {
+        guard alignment >= 2, height % alignment == 0 else { return nil }
+        let widened = spans.map { span in
+            TBRawRowSpan(start: span.start / alignment * alignment,
+                         end: min(height, (span.end + alignment - 1) / alignment * alignment))
+        }
+        return merge(widened)
+    }
+
     static func union(_ lhs: [TBRawRowSpan], _ rhs: [TBRawRowSpan]) -> [TBRawRowSpan] {
         if lhs.isEmpty { return rhs }
         if rhs.isEmpty { return lhs }
@@ -124,6 +135,51 @@ enum TBRawRegionPlanner {
     }
 }
 
+/// The numbers behind the latency setting. Pure functions, unit tested.
+enum TBLatencyLimits {
+    /// Balanced, encoder: besides any existing one-second ceiling, at most
+    /// 1.5x the average over about three frames. VideoToolbox takes pairs of
+    /// [bytes, seconds].
+    static func encoderDataRateLimits(averageBitRate: Int, peakBitRate: Int?, frameRate: Int) -> [Double]? {
+        guard averageBitRate > 0, frameRate > 0 else { return nil }
+        let window = 3.0 / Double(frameRate)
+        let burstBytes = Double(averageBitRate) / 8 * 1.5 * window
+        var limits: [Double] = []
+        if let peakBitRate { limits += [Double(peakBitRate) / 8, 1.0] }
+        limits += [burstBytes, window]
+        return limits
+    }
+
+    /// Changed rows: how much smaller a change is sent first. 1 = full size,
+    /// 2 = half (a quarter of the data), 4 = quarter (a sixteenth).
+    /// `seconds` is the estimated time to send the change at full size.
+    static func rowScale(seconds: Double, frameInterval: Double, mode: TBLatencyMode) -> Int {
+        guard seconds.isFinite, seconds > 0, frameInterval > 0 else { return 1 }
+        switch mode {
+        case .standard:
+            return 1
+        case .balanced:
+            return seconds > 2 * frameInterval ? 2 : 1
+        case .low:
+            if seconds <= frameInterval { return 1 }
+            return seconds / 4 > frameInterval ? 4 : 2
+        }
+    }
+
+    /// Refinement: rows sent at reduced size are sent again at full size
+    /// once nothing large has changed for this long.
+    static func refineDelay(_ mode: TBLatencyMode) -> TimeInterval {
+        mode == .low ? 0.1 : 0.05
+    }
+
+    /// Bytes of changed rows at full size: NV12 = 1.5 bytes per pixel,
+    /// 10-bit RGB = 4 bytes per pixel.
+    static func rowBytes(_ spans: [TBRawRowSpan], width: Int, rgb10: Bool) -> Int {
+        let rows = spans.reduce(0) { $0 + $1.rows }
+        return rgb10 ? rows * width * 4 : rows * width + rows / 2 * width
+    }
+}
+
 enum TBRawDirtyRects {
     /// Changed areas of a ScreenCaptureKit frame in pixel coordinates, or nil
     /// if the frame carries no usable dirty-rect information (then the whole
@@ -170,6 +226,14 @@ enum TBRawRegionPacketBuilder {
     static let flagFullFrame: UInt8 = 0x01
     static let encodingRaw: UInt8 = 0
     static let encodingLZ4: UInt8 = 1
+    /// Encoding bits 4-5: the band is carried at 1/2 (0x10) or 1/4 (0x20) size.
+    static func scaleBits(_ scale: Int) -> UInt8 {
+        switch scale {
+        case 2: return 0x10
+        case 4: return 0x20
+        default: return 0
+        }
+    }
     static let formatNV12: UInt8 = 1
     /// 10-bit RGB as captured ('l10r'): 4 bytes per pixel, one plane.
     static let formatRGB10: UInt8 = 2
@@ -179,6 +243,8 @@ enum TBRawRegionPacketBuilder {
         var rows: Int
         var rawBytes: Int
         var wireBytes: Int
+        /// 1, or 2 / 4 when the rows went out at reduced size.
+        var scale: Int = 1
     }
 
     private struct Shared<T>: @unchecked Sendable {
@@ -219,7 +285,8 @@ enum TBRawRegionPacketBuilder {
         fullFrame: Bool,
         compress: Bool,
         parts: Int,
-        frameSequence: UInt32?
+        frameSequence: UInt32?,
+        scale requestedScale: Int = 1
     ) -> (packets: [Data], summary: Summary)? {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
@@ -267,18 +334,67 @@ enum TBRawRegionPacketBuilder {
         let chunks = TBRawRegionPlanner.chunks(clamped)
         guard !chunks.isEmpty, chunks.count <= maxBands else { return nil }
 
-        let rawSizes = chunks.map { rowBytes * $0.rows + uvRowBytes * ($0.rows / 2) }
+        // Reduced size (latency setting): every band, the width and the
+        // height must divide into whole NV12 row pairs at that size.
+        var scale = requestedScale == 2 || requestedScale == 4 ? requestedScale : 1
+        if scale > 1 {
+            let alignment = 2 * scale
+            if width % alignment != 0
+                || chunks.contains(where: { $0.start % alignment != 0 || $0.rows % alignment != 0 }) {
+                scale = 1
+            }
+        }
+        let scaledRowBytes = rowBytes / scale
+        let scaledUVRowBytes = uvRowBytes / scale
+        let rawSizes = chunks.map { scaledRowBytes * ($0.rows / scale) + scaledUVRowBytes * ($0.rows / scale / 2) }
         let source = Shared(value: (
             y: UnsafeRawPointer(yBase), uv: uvBase.map { UnsafeRawPointer($0) },
-            rowBytes: rowBytes, uvRowBytes: uvRowBytes, yStride: yStride, uvStride: uvStride
+            rowBytes: rowBytes, uvRowBytes: uvRowBytes, yStride: yStride, uvStride: uvStride,
+            scale: scale, rgb10: format == formatRGB10
         ))
         let spansBox = Shared(value: chunks)
+
+        // Reduced size: every `scale`-th pixel of every `scale`-th row (the
+        // Receiver repeats them), main plane first, then CbCr pairs.
+        @Sendable func packScaled(_ span: TBRawRowSpan, _ scale: Int, into destination: UnsafeMutableRawPointer) {
+            let s = source.value
+            let outRows = span.rows / scale
+            if s.rgb10 {
+                let outWidth = s.rowBytes / 4 / scale
+                for row in 0..<outRows {
+                    let src = (s.y + (span.start + row * scale) * s.yStride).assumingMemoryBound(to: UInt32.self)
+                    let dst = (destination + row * outWidth * 4).assumingMemoryBound(to: UInt32.self)
+                    for x in 0..<outWidth { dst[x] = src[x * scale] }
+                }
+                return
+            }
+            let outWidth = s.rowBytes / scale
+            for row in 0..<outRows {
+                let src = (s.y + (span.start + row * scale) * s.yStride).assumingMemoryBound(to: UInt8.self)
+                let dst = (destination + row * outWidth).assumingMemoryBound(to: UInt8.self)
+                for x in 0..<outWidth { dst[x] = src[x * scale] }
+            }
+            guard let uv = s.uv else { return }
+            let uvDestination = destination + outWidth * outRows
+            for row in 0..<(outRows / 2) {
+                let src = (uv + (span.start / 2 + row * scale) * s.uvStride).assumingMemoryBound(to: UInt8.self)
+                let dst = (uvDestination + row * outWidth).assumingMemoryBound(to: UInt8.self)
+                for pair in 0..<(outWidth / 2) {
+                    dst[2 * pair] = src[2 * pair * scale]
+                    dst[2 * pair + 1] = src[2 * pair * scale + 1]
+                }
+            }
+        }
 
         // Copies the rows of chunk `index` into `destination`, tightly packed:
         // main-plane rows, then (NV12 only) CbCr rows.
         @Sendable func pack(_ index: Int, into destination: UnsafeMutableRawPointer) {
             let s = source.value
             let span = spansBox.value[index]
+            if s.scale > 1 {
+                packScaled(span, s.scale, into: destination)
+                return
+            }
             if s.yStride == s.rowBytes {
                 memcpy(destination, s.y + span.start * s.yStride, s.rowBytes * span.rows)
             } else {
@@ -391,7 +507,7 @@ enum TBRawRegionPacketBuilder {
                 put32(chunks[index].start, at: entry)
                 put32(chunks[index].rows, at: entry + 4)
                 put32(lengths[index], at: entry + 8)
-                put8(encodings[index], at: entry + 12)
+                put8(encodings[index] | scaleBits(scale), at: entry + 12)
                 chunkTargets[index] = packet + dataOffset
                 dataOffset += lengths[index]
             }
@@ -424,7 +540,8 @@ enum TBRawRegionPacketBuilder {
             bands: chunks.count,
             rows: chunks.reduce(0) { $0 + $1.rows },
             rawBytes: rawSizes.reduce(0, +),
-            wireBytes: packetSizes.reduce(0, +)
+            wireBytes: packetSizes.reduce(0, +),
+            scale: scale
         )
         return (data, summary)
     }

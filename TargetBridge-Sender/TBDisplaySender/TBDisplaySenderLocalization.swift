@@ -590,15 +590,34 @@ enum TBDisplaySenderL10n {
         return hint
     }
 
-    static func lowLatencyDetails(applies: Bool, active: Bool?,
-                                  language: TBDisplaySenderLanguage) -> String {
-        guard applies else { return text("sender.low_latency.not_applicable", language) }
-        let hint = text("sender.low_latency.hint", language)
-        switch active {
-        case true?: return hint + " " + text("sender.low_latency.active", language)
-        case false?: return hint + " " + text("sender.low_latency.unavailable", language)
-        case nil: return hint
+    /// Explains the three latency settings for the chosen compression, the
+    /// selected one first, and what the running stream applies.
+    static func latencyDetails(selected: TBLatencyMode,
+                               target: TBLatencyTarget,
+                               receiverSupportsScaledRows: Bool?,
+                               active: TBLatencyMode?,
+                               streaming: Bool,
+                               language: TBDisplaySenderLanguage) -> String {
+        let group: String
+        switch target {
+        case .none: return text("sender.latency.none", language)
+        case .encoder: group = "encoder"
+        case .rows: group = "rows"
         }
+        let order = [selected] + TBLatencyMode.allCases.filter { $0 != selected }
+        var lines = order.map { mode in
+            text("sender.latency.\(mode.rawValue)", language) + ": "
+                + text("sender.latency.\(group).\(mode.rawValue)", language)
+        }
+        if target == .rows, selected != .standard, receiverSupportsScaledRows == false {
+            lines.append(text("sender.latency.rows.unsupported", language))
+        }
+        if streaming, selected != .standard, let active {
+            lines.append(active == selected
+                ? text("sender.latency.active", language)
+                : text("sender.latency.unavailable", language))
+        }
+        return lines.joined(separator: "\n")
     }
 
     static func codecUnavailable(_ language: TBDisplaySenderLanguage) -> String {

@@ -449,6 +449,40 @@ enum TBDisplayCodecPreference: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
 }
 
+/// Latency setting (experimental): what happens when a large change would
+/// take long to reach the Receiver. Each compression applies it its own way.
+enum TBLatencyMode: String, CaseIterable, Identifiable, Sendable {
+    /// Full quality always; a large change takes as long as it takes.
+    case standard
+    /// Only outliers are caught: the encoder caps short bursts; changed rows
+    /// that would take longer than about two frames go out at half size first.
+    case balanced
+    /// The delay stays as even as possible: the encoder's real-time mode;
+    /// changed rows that would take longer than one frame go out at half or
+    /// quarter size first.
+    case low
+
+    var id: String { rawValue }
+}
+
+/// What a latency setting acts on for a compression.
+enum TBLatencyTarget: Equatable, Sendable {
+    /// H.264 / HEVC: the hardware encoder's rate control.
+    case encoder
+    /// Uncompressed and LZ4 changed rows: large changes at reduced size first.
+    case rows
+    /// DPCM sends whole frames; the setting changes nothing.
+    case none
+
+    static func of(_ compression: TBDisplayCodecPreference) -> TBLatencyTarget {
+        switch compression {
+        case .automatic, .h264, .hevc: return .encoder
+        case .losslessDPCM, .losslessDPCM8Bit: return .none
+        default: return .rows
+        }
+    }
+}
+
 /// The compression method, shown in the menu without the colour depth.
 enum TBCompressionMethod: String, CaseIterable, Identifiable {
     case automatic, h264, hevc, uncompressed, lz4, dpcm
@@ -876,10 +910,14 @@ private final class TBVideoPipeline: @unchecked Sendable {
     /// Colour space the session is labelled with; nil leaves the video
     /// unlabelled, as before (older Receiver or SDL renderer).
     let colorSpace: TBVideoColorSpace?
-    /// Asked for: Apple's low-latency rate control (H.264/HEVC only).
-    private let requestsLowLatency: Bool
-    /// Whether the encoder accepted low-latency rate control; set in `start()`.
-    private(set) var lowLatencyActive = false
+    /// The latency setting as asked for.
+    private let latencyMode: TBLatencyMode
+    /// The latency setting the pipeline really applies; set in `start()`
+    /// (the encoder may refuse its part, an older Receiver can't take
+    /// scaled rows). `.standard` = nothing special.
+    private(set) var appliedLatency: TBLatencyMode = .standard
+    /// The Receiver can enlarge rows sent at reduced size.
+    private let scaledRowsAllowed: Bool
     private let onFirstFrame: @Sendable () -> Void
 
     // Confined to `queue`.
@@ -910,6 +948,17 @@ private final class TBVideoPipeline: @unchecked Sendable {
     private static let rgb10RawFramesAfterPoorCompression = 30
     private var rgb10RawFramesLeft = 0
 
+    // Latency setting for changed rows (confined to `queue`).
+    /// Measured link speed in bytes per second; 0 until a large frame was sent.
+    private var rawLinkBytesPerSecond: Double = 0
+    /// Bytes on the wire per byte of rows (LZ4 shrinks them), measured.
+    private var rawWireRatio: Double = 1
+    /// Rows sent at reduced size that still have to go out at full size.
+    private var rawOwedSpans: [TBRawRowSpan] = []
+    /// The newest captured frame while rows are owed, for the refinement.
+    private var rawLatestSource: CVPixelBuffer?
+    private var rawRefineWork: DispatchWorkItem?
+
     // Read from the main thread (fps timer / watchdog); guarded by `lock`.
     private let lock = NSLock()
     private var _sentFrames = 0
@@ -934,7 +983,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
          dpcmTenBit: Bool = true,
          dpcmAdaptiveColor: Bool = false,
          colorSpace: TBVideoColorSpace? = nil,
-         lowLatency: Bool = false,
+         latencyMode: TBLatencyMode = .standard,
+         scaledRowsAllowed: Bool = false,
          ackAlreadySent: Bool,
          onFirstFrame: @escaping @Sendable () -> Void) {
         self.preset = preset
@@ -952,7 +1002,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
         self.dpcmTenBit = dpcmTenBit
         self.dpcmAdaptiveColor = self.sendsDPCM && dpcmAdaptiveColor
         self.colorSpace = colorSpace
-        self.requestsLowLatency = lowLatency && !usesRawNV12
+        self.latencyMode = latencyMode
+        self.scaledRowsAllowed = scaledRowsAllowed
         self.frameRatePacer = TBFrameRatePacer(maximumFrameRate: preset.expectedFrameRate)
         self.ackSent = ackAlreadySent
         self.onFirstFrame = onFirstFrame
@@ -965,6 +1016,9 @@ private final class TBVideoPipeline: @unchecked Sendable {
     func start() -> Bool {
         queue.sync {
             if usesRawNV12 {
+                // Changed rows can be sent at reduced size first; whole raw
+                // frames and DPCM keep their size.
+                appliedLatency = usesRawRegions && !sendsDPCM && scaledRowsAllowed ? latencyMode : .standard
                 running = true
                 return true
             }
@@ -984,6 +1038,10 @@ private final class TBVideoPipeline: @unchecked Sendable {
             vtEncoder = nil
             vtEncoderRef?.release()
             vtEncoderRef = nil
+            rawRefineWork?.cancel()
+            rawRefineWork = nil
+            rawLatestSource = nil
+            rawOwedSpans = []
         }
     }
 
@@ -1071,12 +1129,12 @@ private final class TBVideoPipeline: @unchecked Sendable {
             return status == noErr ? session : nil
         }
 
-        lowLatencyActive = false
+        appliedLatency = .standard
         var created: VTCompressionSession?
-        if requestsLowLatency {
+        if latencyMode == .low {
             created = create(lowLatency: true)
             if created != nil {
-                lowLatencyActive = true
+                appliedLatency = .low
             } else {
                 // Not every Mac and codec offers it; the normal encoder still works.
                 NSLog("[TBVideoPipeline] low-latency rate control not available; using the normal encoder")
@@ -1108,6 +1166,19 @@ private final class TBVideoPipeline: @unchecked Sendable {
                 // Not every encoder accepts a rate ceiling; average-only is the
                 // previous behaviour, so carry on without it.
                 NSLog("[TBVideoPipeline] DataRateLimits not supported (status %d); using average bitrate only", status)
+            }
+        }
+        if latencyMode == .balanced,
+           let limits = TBLatencyLimits.encoderDataRateLimits(averageBitRate: preset.averageBitRate,
+                                                              peakBitRate: preset.peakBitRate,
+                                                              frameRate: preset.expectedFrameRate) {
+            // Caps short bursts: at most 1.5x the average over about 3 frames.
+            let status = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits,
+                                              value: limits.map { NSNumber(value: $0) } as CFArray)
+            if status == noErr {
+                appliedLatency = .balanced
+            } else {
+                NSLog("[TBVideoPipeline] short-window DataRateLimits not supported (status %d); latency stays standard", status)
             }
         }
         if preset.prioritizeSpeed {
@@ -1387,12 +1458,16 @@ private final class TBVideoPipeline: @unchecked Sendable {
 
     /// Changed-rows passthrough: sends only the rows that changed since the
     /// last frame that was sent, optionally LZ4-compressed, as packet 0x24.
-    private func sendRawRegions(_ pixelBuffer: CVPixelBuffer) {
+    /// With the latency setting, a change that would take too long goes out
+    /// at reduced size first (`refining` sends those rows again at full size).
+    private func sendRawRegions(_ pixelBuffer: CVPixelBuffer, refining: Bool = false) {
         guard running else { return }
+        if !rawOwedSpans.isEmpty { rawLatestSource = pixelBuffer }
         // Backpressure: keep the changed rows pending and send them with a
         // later frame instead of piling packets onto a saturated link.
         if pendingVideoPackets >= preset.maxPendingVideoPackets {
             droppedBeforeEncodeFrames += 1
+            if refining { scheduleRawRefinement() }
             return
         }
         let now = ProcessInfo.processInfo.systemUptime
@@ -1400,9 +1475,41 @@ private final class TBVideoPipeline: @unchecked Sendable {
             rawNeedsFullFrame = true
         }
         let fullFrame = rawNeedsFullFrame
-        let spans = fullFrame
-            ? TBRawRegionPlanner.fullFrame(height: CVPixelBufferGetHeight(pixelBuffer))
-            : rawPendingSpans
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        var spans = fullFrame ? TBRawRegionPlanner.fullFrame(height: height) : rawPendingSpans
+
+        // Latency setting: decide the size before anything is converted.
+        var scale = 1
+        var sendsOwed = false
+        if appliedLatency != .standard, !rawOwedSpans.isEmpty || !spans.isEmpty {
+            let sendsRGB10 = CVPixelBufferGetPixelFormatType(pixelBuffer) == TBTenBitConverter.sourcePixelFormat
+                && sendsRawRGB10
+            let frameInterval = 1.0 / Double(max(1, preset.expectedFrameRate))
+            func seconds(_ candidate: [TBRawRowSpan]) -> Double {
+                guard rawLinkBytesPerSecond > 0 else { return 0 }
+                return Double(TBLatencyLimits.rowBytes(candidate, width: width, rgb10: sendsRGB10))
+                    * rawWireRatio / rawLinkBytesPerSecond
+            }
+            let withOwed = TBRawRegionPlanner.union(spans, rawOwedSpans)
+            if refining || TBLatencyLimits.rowScale(seconds: seconds(withOwed), frameInterval: frameInterval,
+                                                   mode: appliedLatency) == 1 {
+                // Owed rows go along at full size while there is room (and
+                // always when the picture has calmed down).
+                sendsOwed = !rawOwedSpans.isEmpty
+                spans = withOwed
+            } else {
+                scale = TBLatencyLimits.rowScale(seconds: seconds(spans), frameInterval: frameInterval,
+                                                 mode: appliedLatency)
+                if scale > 1 {
+                    if let aligned = TBRawRegionPlanner.aligned(spans, to: 2 * scale, height: height) {
+                        spans = aligned
+                    } else {
+                        scale = 1
+                    }
+                }
+            }
+        }
         // Nothing changed on screen: nothing to send.
         guard !spans.isEmpty else { return }
 
@@ -1445,7 +1552,8 @@ private final class TBVideoPipeline: @unchecked Sendable {
             fullFrame: fullFrame,
             compress: compress,
             parts: max(1, streams.count),
-            frameSequence: frameSequence
+            frameSequence: frameSequence,
+            scale: scale
         ) else { return }
         if compress, isRGB10, built.summary.rawBytes > 0,
            built.summary.wireBytes * 10 > built.summary.rawBytes * 8 {
@@ -1458,6 +1566,29 @@ private final class TBVideoPipeline: @unchecked Sendable {
             rawNeedsFullFrame = false
             rawLastFullFrameUptime = now
         }
+        if appliedLatency != .standard {
+            if built.summary.rawBytes >= 256 * 1024 {
+                let ratio = Double(built.summary.wireBytes) / Double(built.summary.rawBytes)
+                rawWireRatio = 0.7 * rawWireRatio + 0.3 * min(1.2, max(0.02, ratio))
+            }
+            if built.summary.scale > 1 {
+                rawOwedSpans = TBRawRegionPlanner.union(rawOwedSpans, spans)
+                rawLatestSource = pixelBuffer
+                scheduleRawRefinement()
+            } else if sendsOwed {
+                rawOwedSpans = []
+                rawLatestSource = nil
+                rawRefineWork?.cancel()
+                rawRefineWork = nil
+            }
+        }
+
+        // Link speed: measured on large frames sent onto an idle link, so the
+        // time is the transfer itself rather than waiting behind other frames.
+        let measures = appliedLatency != .standard && pendingVideoPackets == 0
+            && built.summary.wireBytes >= 512 * 1024
+        let sendStart = ProcessInfo.processInfo.systemUptime
+        let wireBytes = built.summary.wireBytes
 
         // Backpressure counts frames: a frame is done when all its parts are.
         pendingVideoPackets += 1
@@ -1470,11 +1601,32 @@ private final class TBVideoPipeline: @unchecked Sendable {
                     remaining.count -= 1
                     if remaining.count == 0 {
                         self.pendingVideoPackets = max(0, self.pendingVideoPackets - 1)
+                        if measures {
+                            let elapsed = ProcessInfo.processInfo.systemUptime - sendStart
+                            if elapsed > 0.0005 {
+                                let sample = Double(wireBytes) / elapsed
+                                self.rawLinkBytesPerSecond = self.rawLinkBytesPerSecond == 0
+                                    ? sample : 0.7 * self.rawLinkBytesPerSecond + 0.3 * sample
+                            }
+                        }
                     }
                 }
             }))
         }
         lock.lock(); _sentFrames += 1; lock.unlock()
+    }
+
+    /// Sends owed rows at full size once nothing large changed for a moment.
+    private func scheduleRawRefinement() {
+        rawRefineWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.running, !self.rawOwedSpans.isEmpty,
+                  let source = self.rawLatestSource else { return }
+            self.rawRefineWork = nil
+            self.sendRawRegions(source, refining: true)
+        }
+        rawRefineWork = work
+        queue.asyncAfter(deadline: .now() + TBLatencyLimits.refineDelay(appliedLatency), execute: work)
     }
 
     /// Sent once before the first frame; announces the colour space too.
@@ -1484,7 +1636,7 @@ private final class TBVideoPipeline: @unchecked Sendable {
             displayName: displayName,
             displayID: displayID,
             colorSpace: colorSpace?.rawValue,
-            lowLatency: lowLatencyActive ? true : nil
+            latency: appliedLatency == .standard ? nil : appliedLatency.rawValue
         )
     }
 
@@ -1946,19 +2098,13 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         if compression == .automatic { return false }
         return chosen
     }
-    /// Low-latency encoding (experimental): Apple's real-time rate control
-    /// for H.264/HEVC. Has no effect on the uncompressed, LZ4 and DPCM modes.
-    @Published var lowLatencyEncoding: Bool = false
-    /// Whether the running stream uses it; nil while not streaming.
-    @Published private(set) var activeLowLatency: Bool?
-
-    /// Low-latency encoding applies only where a video encoder runs.
-    static func lowLatencyApplies(to compression: TBDisplayCodecPreference) -> Bool {
-        switch compression {
-        case .automatic, .h264, .hevc: return true
-        default: return false
-        }
-    }
+    /// Latency setting (experimental); see `TBLatencyMode`.
+    @Published var latencyMode: TBLatencyMode = .standard
+    /// What the running stream applies; nil while not streaming.
+    @Published private(set) var activeLatency: TBLatencyMode?
+    /// Whether the connected Receiver can show rows sent at reduced size;
+    /// nil before a profile.
+    @Published private(set) var receiverSupportsScaledRows: Bool?
 
     /// Colour space of the virtual display and video (experimental).
     @Published var colorSpacePreference: TBVideoColorSpacePreference = .automatic
@@ -2596,7 +2742,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
         pipeline?.stop()
         pipeline = nil
         activeColorSpace = nil
-        activeLowLatency = nil
+        activeLatency = nil
         for dataConnection in dataConnections {
             dataConnection.stateUpdateHandler = nil
             dataConnection.cancel()
@@ -3420,6 +3566,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             let colorSpace = TBVideoColorSpace.resolve(preference: self.colorSpacePreference, profile: profile)
             self.activeColorSpace = colorSpace
             self.receiverSupportsColorSpaceTags = profile.supportsColorSpaceTags == true
+            self.receiverSupportsScaledRows = profile.supportsScaledRows == true
             TBLog.connection.info(
                 "colour: preference=\(self.colorSpacePreference.rawValue, privacy: .public) receiverTags=\(profile.supportsColorSpaceTags == true, privacy: .public) panel=\(profile.panelColorSpace ?? "unknown", privacy: .public) active=\(colorSpace?.rawValue ?? "unlabelled", privacy: .public)"
             )
@@ -3613,7 +3760,8 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
                 dpcmTenBit: dpcmTenBit,
                 dpcmAdaptiveColor: sendsDPCM && profile.supportsDPCMAdaptiveColor == true,
                 colorSpace: activeColorSpace,
-                lowLatency: lowLatencyEncoding && Self.lowLatencyApplies(to: effectiveCodecPreference),
+                latencyMode: latencyMode,
+                scaledRowsAllowed: profile.supportsScaledRows == true,
                 ackAlreadySent: sessionAckSent,
                 onFirstFrame: { [weak self] in
                     Task { @MainActor in self?.handleFirstEncodedFrame() }
@@ -3621,7 +3769,7 @@ final class TBDisplaySenderSession: NSObject, ObservableObject, Identifiable, @u
             )
             guard pipeline.start() else { return false }
             self.pipeline = pipeline
-            activeLowLatency = usesRawNV12 ? nil : pipeline.lowLatencyActive
+            activeLatency = pipeline.appliedLatency
             TBLog.connection.info("capture: pipeline started preset=\(preset.rawValue, privacy: .public) source=\(String(describing: self.captureSource), privacy: .public) codec=\(codecName, privacy: .public) rawNV12=\(usesRawNV12, privacy: .public) rawRegions=\(usesRawRegions, privacy: .public)")
 
             let display: SCDisplay

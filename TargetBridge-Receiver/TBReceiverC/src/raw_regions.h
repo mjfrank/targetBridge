@@ -9,8 +9,16 @@
  *   [1 byte format: 1=NV12, 2=RGB10][1 byte flags: bit0 = full frame]
  *   [4 width][4 height][2 band count][1 part count][1 reserved]
  *   band table, count entries of 13 bytes:
- *     [4 first row][4 row count][4 encoded length][1 encoding: 0=raw, 1=LZ4]
+ *     [4 first row][4 row count][4 encoded length][1 encoding]
  *   band data, in table order.
+ *
+ * Encoding: low nibble 0=raw, 1=LZ4; bits 4-5 a scale shift (latency
+ * setting, only sent to receivers that announce supportsScaledRows). With
+ * shift s > 0 the band covers the same rows of the frame, but carries them at
+ * 1/2^s of the width and height (the Sender simplified a large change so it
+ * arrives sooner); the receiver enlarges it into the frame and the Sender
+ * sends the rows again at full size once the picture is calm. First row, row
+ * count and width are then multiples of 2^(s+1).
  *
  * A decoded NV12 band holds its Y rows (width bytes each) followed by its CbCr
  * rows (width bytes each, row count / 2 of them). A decoded RGB10 band holds
@@ -47,6 +55,9 @@
 
 #define TB_RAW_REGIONS_ENCODING_RAW   0
 #define TB_RAW_REGIONS_ENCODING_LZ4   1
+#define TB_RAW_REGIONS_ENCODING_MASK  0x0F
+#define TB_RAW_REGIONS_SCALE_SHIFT(e) (((e) >> 4) & 0x03)
+#define TB_RAW_REGIONS_MAX_SCALE_SHIFT 2
 
 /* The receiver's copy of the picture, tightly packed. NV12: y (stride =
  * width) and uv. RGB10: y holds the pixels (stride = width * 4), uv is NULL. */
@@ -77,6 +88,7 @@ struct tb_raw_regions_result {
     int      compressed;    /* at least one band used LZ4 */
     uint32_t sequence;      /* frame sequence of a 0x26 part, else 0 */
     uint32_t parts;         /* parts of that frame, 0 = unknown */
+    uint32_t scaled_rows;   /* rows carried at reduced size (latency setting) */
 };
 
 /* Validates the whole payload first, then patches it into the frame. Nothing
