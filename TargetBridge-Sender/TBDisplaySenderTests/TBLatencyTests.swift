@@ -43,9 +43,12 @@ final class TBLatencyTests: XCTestCase {
     }
 
     func testAlignment() {
-        let spans = [TBRawRowSpan(start: 2, end: 6), TBRawRowSpan(start: 30, end: 34)]
-        XCTAssertEqual(TBRawRegionPlanner.aligned(spans, to: 8, height: 64),
-                       [TBRawRowSpan(start: 0, end: 8), TBRawRowSpan(start: 24, end: 40)])
+        // Far enough apart that the merge gap keeps them separate.
+        let spans = [TBRawRowSpan(start: 2, end: 6), TBRawRowSpan(start: 62, end: 66)]
+        XCTAssertEqual(TBRawRegionPlanner.aligned(spans, to: 8, height: 128),
+                       [TBRawRowSpan(start: 0, end: 8), TBRawRowSpan(start: 56, end: 72)])
+        XCTAssertEqual(TBRawRegionPlanner.aligned([TBRawRowSpan(start: 118, end: 124)], to: 8, height: 128),
+                       [TBRawRowSpan(start: 112, end: 128)])
         XCTAssertNil(TBRawRegionPlanner.aligned(spans, to: 8, height: 60))
     }
 
