@@ -44,7 +44,19 @@ void               tb_dec_reset  (struct tb_decoder *d);
 int  tb_dec_set_param_sets(struct tb_decoder *d, const uint8_t *payload, size_t len);
 
 /* Feed one AVCC-formatted frame (4-byte length prefixed NAL units).
- * Converts to Annex B and dispatches to FFmpeg. */
+ * Converts to Annex B and dispatches to FFmpeg, or hands it to VideoToolbox
+ * directly (see below). */
 int  tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len);
+
+/* Experimental (macOS): decode with a VideoToolbox session directly instead
+ * of through FFmpeg: real-time, asynchronous, no Annex B round trip. Starts
+ * with the next parameter sets (every keyframe); off, or after repeated
+ * errors, FFmpeg decodes again from the next keyframe. Decoded frames are
+ * delivered on the calling thread by tb_dec_poll(); tb_dec_wake_fd() becomes
+ * readable when one is waiting (-1 elsewhere). */
+void tb_dec_set_direct_videotoolbox(struct tb_decoder *d, int on);
+int  tb_dec_direct_videotoolbox_active(const struct tb_decoder *d);
+int  tb_dec_wake_fd(const struct tb_decoder *d);
+void tb_dec_poll(struct tb_decoder *d);
 
 #endif

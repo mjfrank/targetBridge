@@ -39,6 +39,7 @@ static NSString *const kShowWindowAtStartKey = @"showWindowAtStart";
 @property(nonatomic, strong) NSMenuItem *rendererSDLOpenGLItem;
 @property(nonatomic, strong) NSMenuItem *displaySyncItem;
 @property(nonatomic, strong) NSMenuItem *lowLatencyItem;
+@property(nonatomic, strong) NSMenuItem *directVTItem;
 @property(nonatomic, strong) NSMenuItem *zeroCopyItem;
 @property(nonatomic, strong) NSMenuItem *energySavingItem;
 @property(nonatomic, strong) NSMenuItem *statsItem;
@@ -165,6 +166,7 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     _displaySyncItem = [self addItemTo:expert action:@selector(toggleDisplaySync:)];
     _lowLatencyItem = [self addItemTo:expert action:@selector(toggleLowLatency:)];
     _zeroCopyItem = [self addItemTo:expert action:@selector(toggleZeroCopy:)];
+    _directVTItem = [self addItemTo:expert action:@selector(toggleDirectVT:)];
     _expertItem = [performance addItemWithTitle:@"" action:nil keyEquivalent:@""];
     _expertItem.submenu = expert;
     _performanceItem = [menu addItemWithTitle:@"" action:nil keyEquivalent:@""];
@@ -264,6 +266,11 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
 - (void)toggleZeroCopy:(id)sender {
     (void)sender;
     self.actions |= TB_BACKGROUND_UI_TOGGLE_ZERO_COPY;
+}
+
+- (void)toggleDirectVT:(id)sender {
+    (void)sender;
+    self.actions |= TB_BACKGROUND_UI_TOGGLE_DIRECT_VT;
 }
 
 - (void)toggleLowLatency:(id)sender {
@@ -380,6 +387,7 @@ static NSImage *tb_background_ui_drawn_display_icon(void) {
     self.rendererSDLOpenGLItem.title = tb_ui_text("receiver.expert.renderer_sdl_opengl");
     self.displaySyncItem.title = tb_ui_text("receiver.expert.display_sync");
     self.lowLatencyItem.title = tb_ui_text("receiver.expert.low_latency");
+    self.directVTItem.title = tb_ui_text("receiver.expert.direct_vt");
     self.zeroCopyItem.title = tb_ui_text("receiver.expert.zero_copy");
     self.energySavingItem.title = tb_ui_text("receiver.performance.save_energy");
     self.statsItem.title = tb_ui_text("receiver.performance.show_stats");
@@ -503,7 +511,7 @@ static NSControlStateValue tb_ui_state(int on) {
 
 void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int renderer,
                                       int display_sync, int stats, int zero_copy, int energy_saving,
-                                      int low_latency) {
+                                      int low_latency, int direct_vt) {
     g_background_ui.newestFrameItem.state = tb_ui_state(newest_frame);
     g_background_ui.wakeOnDataItem.state = tb_ui_state(wake_on_data);
     g_background_ui.rendererTargetBridgeItem.state = tb_ui_state(renderer == 0);
@@ -514,6 +522,7 @@ void tb_background_ui_set_performance(int newest_frame, int wake_on_data, int re
     /* Only matters while the Metal view waits for the refresh. */
     g_background_ui.lowLatencyItem.state = tb_ui_state(low_latency);
     g_background_ui.lowLatencyItem.enabled = renderer == 0 && display_sync;
+    g_background_ui.directVTItem.state = tb_ui_state(direct_vt);
     g_background_ui.statsItem.state = tb_ui_state(stats);
     /* Only the TargetBridge Metal renderer can show frames without a copy. */
     g_background_ui.zeroCopyItem.state = tb_ui_state(zero_copy);

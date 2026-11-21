@@ -292,6 +292,7 @@
   "receiver.expert.display_sync": "Attendre le rafraîchissement de l'écran dans les modes non compressés (TargetBridge Metal)",
   "receiver.expert.low_latency": "Mettre une image de moins en file (avec « Attendre le rafraîchissement », expérimental)",
   "receiver.expert.zero_copy": "Images H.264/HEVC sans copie (expérimental, TargetBridge Metal)",
+  "receiver.expert.direct_vt": "Décoder directement avec VideoToolbox (H.264/HEVC, expérimental)",
   "receiver.signin.menu": "Mode écran de connexion (expérimental)",
   "receiver.signin.installed": "Installé : actif tant que l'iMac affiche la fenêtre de connexion",
   "receiver.signin.not_installed": "Non installé",

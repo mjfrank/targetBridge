@@ -130,6 +130,7 @@ struct app {
     int      video_renderer;   /* enum tb_disp_renderer, applies at start */
     int      display_sync;     /* Metal: raw modes wait for the refresh */
     int      low_latency;      /* Metal: two drawables instead of three */
+    int      direct_vt;        /* decode with VideoToolbox directly (experimental) */
     char     sender_latency[16]; /* latency setting the Sender applies ("" = standard) */
     uint64_t stats_scaled_packets; /* raw packets with rows at reduced size */
     int      perf_show_stats;
@@ -2764,6 +2765,7 @@ int main(int argc, char **argv) {
     if (!a.disp) { fprintf(stderr, "tb_disp_create failed\n"); return 1; }
     tb_disp_set_display_sync(a.disp, a.display_sync);
     a.low_latency = tb_pref_get("metalLowLatency", 0);
+    a.direct_vt = tb_pref_get("videoToolboxDirect", 0);
     tb_disp_set_low_latency(a.disp, a.low_latency);
     if (a.signin_mode) {
         tb_disp_set_end_session_gestures(a.disp, 1);
@@ -2789,6 +2791,7 @@ int main(int argc, char **argv) {
 
     a.dec = tb_dec_create(on_frame, &a);
     if (a.dec) tb_dec_set_pixbuf_cb(a.dec, on_pixbuf);
+    if (a.dec) tb_dec_set_direct_videotoolbox(a.dec, a.direct_vt);
     if (!a.dec) { fprintf(stderr, "tb_dec_create failed\n"); tb_disp_destroy(a.disp); return 1; }
 
     tb_parser_init(&a.parser, on_packet, &a);
@@ -2881,6 +2884,12 @@ int main(int argc, char **argv) {
             tb_pref_set("metalDisplaySync", a.display_sync);
             tb_disp_set_display_sync(a.disp, a.display_sync);
         }
+        if (ui_actions & TB_BACKGROUND_UI_TOGGLE_DIRECT_VT) {
+            /* Takes effect with the next keyframe. */
+            a.direct_vt = !a.direct_vt;
+            tb_pref_set("videoToolboxDirect", a.direct_vt);
+            tb_dec_set_direct_videotoolbox(a.dec, a.direct_vt);
+        }
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_LOW_LATENCY) {
             a.low_latency = !a.low_latency;
             tb_pref_set("metalLowLatency", a.low_latency);
@@ -2903,7 +2912,8 @@ int main(int argc, char **argv) {
         }
         tb_background_ui_set_performance(a.perf_newest_frame, a.perf_wake_on_data,
                                          a.video_renderer, a.display_sync, a.perf_show_stats,
-                                         a.perf_zero_copy, a.energy_saving, a.low_latency);
+                                         a.perf_zero_copy, a.energy_saving, a.low_latency,
+                                         a.direct_vt);
         if (ui_actions & TB_BACKGROUND_UI_TOGGLE_SHOW_AT_START) {
             a.show_window_at_start = !a.show_window_at_start;
             tb_show_window_at_start_save(a.show_window_at_start);
@@ -3041,6 +3051,8 @@ int main(int argc, char **argv) {
         }
 
         if (a.client_fd >= 0) {
+            /* Frames VideoToolbox decoded directly (option) arrive here. */
+            tb_dec_poll(a.dec);
             present_pending_frame(&a);
         } else {
             drop_pending_frame(&a);
@@ -3177,6 +3189,10 @@ int main(int argc, char **argv) {
                          a.stats_copy_frames == 0 ? "zero-copy"
                              : a.stats_zero_copy_frames == 0 ? "copy" : "zero-copy + copy");
             }
+            if (tb_dec_direct_videotoolbox_active(a.dec) && !a.stats_dpcm_frames) {
+                const size_t used = strlen(video_path);
+                snprintf(video_path + used, sizeof(video_path) - used, " | VT direct");
+            }
             const double draw_avg_ms = a.stats_draw_count
                 ? (double)a.stats_draw_us_total / 1000.0 / (double)a.stats_draw_count : 0.0;
             if (a.stats_region_height > 0) {
@@ -3229,7 +3245,7 @@ int main(int argc, char **argv) {
             if (a.client_fd >= 0 && a.perf_wake_on_data) {
                 /* Returns as soon as data arrives on the session or any of
                  * its data streams; otherwise after session_wait_ms. */
-                struct pollfd pfds[1 + TB_MAX_DATA_STREAMS];
+                struct pollfd pfds[2 + TB_MAX_DATA_STREAMS];
                 nfds_t count = 0;
                 pfds[count].fd = a.client_fd;
                 pfds[count].events = POLLIN;
@@ -3238,6 +3254,14 @@ int main(int argc, char **argv) {
                 for (int i = 0; i < TB_MAX_DATA_STREAMS; ++i) {
                     if (a.data_streams[i].fd < 0) continue;
                     pfds[count].fd = a.data_streams[i].fd;
+                    pfds[count].events = POLLIN;
+                    pfds[count].revents = 0;
+                    count++;
+                }
+                /* A frame VideoToolbox decoded directly wakes the loop too. */
+                const int dec_fd = tb_dec_wake_fd(a.dec);
+                if (dec_fd >= 0) {
+                    pfds[count].fd = dec_fd;
                     pfds[count].events = POLLIN;
                     pfds[count].revents = 0;
                     count++;

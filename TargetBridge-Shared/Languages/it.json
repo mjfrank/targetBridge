@@ -292,6 +292,7 @@
   "receiver.expert.display_sync": "Attendi l'aggiornamento dello schermo nelle modalità non compresse (TargetBridge Metal)",
   "receiver.expert.low_latency": "Accoda un fotogramma in meno (con «Attendi l'aggiornamento», sperimentale)",
   "receiver.expert.zero_copy": "Fotogrammi H.264/HEVC senza copia (sperimentale, TargetBridge Metal)",
+  "receiver.expert.direct_vt": "Decodifica direttamente con VideoToolbox (H.264/HEVC, sperimentale)",
   "receiver.signin.menu": "Modalità schermata di accesso (sperimentale)",
   "receiver.signin.installed": "Installata: attiva mentre l'iMac mostra la finestra di accesso",
   "receiver.signin.not_installed": "Non installata",

@@ -292,6 +292,7 @@
   "receiver.expert.display_sync": "在未压缩模式下等待屏幕刷新（TargetBridge Metal）",
   "receiver.expert.low_latency": "少缓冲一帧（配合“等待屏幕刷新”，实验性）",
   "receiver.expert.zero_copy": "H.264/HEVC 画面零拷贝显示（实验性，TargetBridge Metal）",
+  "receiver.expert.direct_vt": "直接用 VideoToolbox 解码（H.264/HEVC，实验性）",
   "receiver.signin.menu": "登录屏幕模式（实验性）",
   "receiver.signin.installed": "已安装：iMac 显示登录窗口时生效",
   "receiver.signin.not_installed": "未安装",

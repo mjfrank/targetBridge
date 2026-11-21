@@ -20,6 +20,29 @@
 #if defined(__APPLE__)
 #  include <CoreVideo/CoreVideo.h>
 #  include <VideoToolbox/VideoToolbox.h>
+#  include <fcntl.h>
+#  include <pthread.h>
+#  include <unistd.h>
+
+/* Direct VideoToolbox decoding (experimental receiver option): the AVCC
+ * frames go to a VTDecompressionSession as they arrive, without FFmpeg's
+ * Annex B round trip, marked real-time and decoded asynchronously, so the
+ * main loop keeps reading the network while a frame decodes. Decoded frames
+ * queue here and reach the caller on the main thread in tb_dec_poll(). */
+#define TB_VT_QUEUE        8
+#define TB_VT_MAX_ERRORS   30
+#define TB_VT_MAX_PARAMS   8
+
+struct tb_vt {
+    VTDecompressionSessionRef   session;
+    CMVideoFormatDescriptionRef format;
+    pthread_mutex_t             lock;
+    CVPixelBufferRef            queue[TB_VT_QUEUE];
+    int                         head;
+    int                         count;
+    int                         wake[2];    /* pipe: a decoded frame is waiting */
+    volatile int                errors;     /* in a row; reset by a good frame */
+};
 #endif
 
 #define ANNEXB_START   "\x00\x00\x00\x01"
@@ -50,6 +73,12 @@ struct tb_decoder {
     void             *ud;
 
     int               opened;
+
+    int               want_direct_vt;  /* option: decode with VideoToolbox directly */
+    int               direct_vt_failed; /* gave up for this session; FFmpeg decodes */
+#if defined(__APPLE__)
+    struct tb_vt      vt;
+#endif
 };
 
 /* Detect available HW device type (platform-specific). */
@@ -97,10 +126,256 @@ struct tb_decoder *tb_dec_create(tb_frame_cb cb, void *ud) {
     d->sw_frame = av_frame_alloc();
     d->nv12_frame = av_frame_alloc();
     d->pkt      = av_packet_alloc();
+#if defined(__APPLE__)
+    pthread_mutex_init(&d->vt.lock, NULL);
+    d->vt.wake[0] = d->vt.wake[1] = -1;
+    if (pipe(d->vt.wake) == 0) {
+        fcntl(d->vt.wake[0], F_SETFL, O_NONBLOCK);
+        fcntl(d->vt.wake[1], F_SETFL, O_NONBLOCK);
+    } else {
+        d->vt.wake[0] = d->vt.wake[1] = -1;
+    }
+#endif
     if (!d->hw_frame || !d->sw_frame || !d->nv12_frame || !d->pkt) {
         tb_dec_destroy(d); return NULL;
     }
     return d;
+}
+
+/* Hands one decoded surface to the caller: the pixel-buffer callback when
+ * set, otherwise the mapped NV12 planes. */
+#if defined(__APPLE__)
+static void deliver_pixbuf(struct tb_decoder *d, CVPixelBufferRef pb) {
+    if (d->pixbuf_cb) {
+        d->pixbuf_cb((void *)pb, d->ud);
+        return;
+    }
+    if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
+        uint8_t *y   = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
+        size_t   ys  =            CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
+        uint8_t *uv  = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1);
+        size_t   uvs =            CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
+        int      w   = (int)CVPixelBufferGetWidth(pb);
+        int      h   = (int)CVPixelBufferGetHeight(pb);
+        d->cb(y, (int)ys, uv, (int)uvs, w, h, d->ud);
+        CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
+    }
+}
+
+static void vt_output(void *refcon, void *frame_refcon, OSStatus status,
+                      VTDecodeInfoFlags flags, CVImageBufferRef image,
+                      CMTime pts, CMTime duration) {
+    (void)frame_refcon; (void)flags; (void)pts; (void)duration;
+    struct tb_decoder *d = (struct tb_decoder *)refcon;
+    if (status != noErr || !image) {
+        if (status != noErr) __atomic_add_fetch(&d->vt.errors, 1, __ATOMIC_RELAXED);
+        return;
+    }
+    __atomic_store_n(&d->vt.errors, 0, __ATOMIC_RELAXED);
+    pthread_mutex_lock(&d->vt.lock);
+    if (d->vt.count == TB_VT_QUEUE) {
+        /* The main loop is far behind: drop the oldest. */
+        CVPixelBufferRelease(d->vt.queue[d->vt.head]);
+        d->vt.head = (d->vt.head + 1) % TB_VT_QUEUE;
+        d->vt.count--;
+    }
+    d->vt.queue[(d->vt.head + d->vt.count) % TB_VT_QUEUE] = CVPixelBufferRetain(image);
+    d->vt.count++;
+    pthread_mutex_unlock(&d->vt.lock);
+    if (d->vt.wake[1] >= 0) {
+        const char byte = 1;
+        ssize_t ignored = write(d->vt.wake[1], &byte, 1);
+        (void)ignored;
+    }
+}
+
+static CVPixelBufferRef vt_pop(struct tb_decoder *d) {
+    CVPixelBufferRef pb = NULL;
+    pthread_mutex_lock(&d->vt.lock);
+    if (d->vt.count > 0) {
+        pb = d->vt.queue[d->vt.head];
+        d->vt.head = (d->vt.head + 1) % TB_VT_QUEUE;
+        d->vt.count--;
+    }
+    pthread_mutex_unlock(&d->vt.lock);
+    return pb;
+}
+
+static void vt_close(struct tb_decoder *d) {
+    if (d->vt.session) {
+        VTDecompressionSessionWaitForAsynchronousFrames(d->vt.session);
+        VTDecompressionSessionInvalidate(d->vt.session);
+        CFRelease(d->vt.session);
+        d->vt.session = NULL;
+    }
+    if (d->vt.format) {
+        CFRelease(d->vt.format);
+        d->vt.format = NULL;
+    }
+    CVPixelBufferRef pb;
+    while ((pb = vt_pop(d)) != NULL) CVPixelBufferRelease(pb);
+    d->vt.errors = 0;
+}
+
+/* Builds the format description from the parameter-set payload (see
+ * tb_dec_set_param_sets) and opens a session, or keeps the open one when it
+ * accepts the new format. */
+static int vt_open(struct tb_decoder *d, const uint8_t *payload, size_t len) {
+    if (len < 2 || (payload[0] != 1 && payload[0] != 2)) return -1;
+    const int count = payload[1];
+    if (count < 1 || count > TB_VT_MAX_PARAMS) return -1;
+    const uint8_t *sets[TB_VT_MAX_PARAMS];
+    size_t sizes[TB_VT_MAX_PARAMS];
+    size_t off = 2;
+    for (int i = 0; i < count; ++i) {
+        if (off + 4 > len) return -1;
+        const uint32_t sz = ((uint32_t)payload[off] << 24) | ((uint32_t)payload[off + 1] << 16) |
+                            ((uint32_t)payload[off + 2] << 8) | (uint32_t)payload[off + 3];
+        off += 4;
+        if (sz == 0 || off + sz > len) return -1;
+        sets[i] = payload + off;
+        sizes[i] = sz;
+        off += sz;
+    }
+
+    CMVideoFormatDescriptionRef format = NULL;
+    OSStatus st;
+    if (payload[0] == 1) {
+        st = CMVideoFormatDescriptionCreateFromH264ParameterSets(kCFAllocatorDefault, (size_t)count,
+                                                                 sets, sizes, 4, &format);
+    } else {
+        st = CMVideoFormatDescriptionCreateFromHEVCParameterSets(kCFAllocatorDefault, (size_t)count,
+                                                                 sets, sizes, 4, NULL, &format);
+    }
+    if (st != noErr || !format) {
+        fprintf(stderr, "[dec] VideoToolbox: format description failed (%d)\n", (int)st);
+        return -1;
+    }
+
+    if (d->vt.session && VTDecompressionSessionCanAcceptFormatDescription(d->vt.session, format)) {
+        if (d->vt.format) CFRelease(d->vt.format);
+        d->vt.format = format;
+        return 0;
+    }
+    vt_close(d);
+
+    const void *spec_keys[] = { kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder };
+    const void *spec_values[] = { kCFBooleanTrue };
+    CFDictionaryRef spec = CFDictionaryCreate(kCFAllocatorDefault, spec_keys, spec_values, 1,
+                                              &kCFTypeDictionaryKeyCallBacks,
+                                              &kCFTypeDictionaryValueCallBacks);
+    /* NV12 in video range on IOSurfaces Metal can read: what the zero-copy
+     * path shows without a copy. */
+    const int32_t pixel_format = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+    CFNumberRef pixel_format_number = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &pixel_format);
+    CFDictionaryRef surface = CFDictionaryCreate(kCFAllocatorDefault, NULL, NULL, 0,
+                                                 &kCFTypeDictionaryKeyCallBacks,
+                                                 &kCFTypeDictionaryValueCallBacks);
+    const void *attr_keys[] = { kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferIOSurfacePropertiesKey,
+                                kCVPixelBufferMetalCompatibilityKey };
+    const void *attr_values[] = { pixel_format_number, surface, kCFBooleanTrue };
+    CFDictionaryRef attrs = CFDictionaryCreate(kCFAllocatorDefault, attr_keys, attr_values, 3,
+                                               &kCFTypeDictionaryKeyCallBacks,
+                                               &kCFTypeDictionaryValueCallBacks);
+    VTDecompressionOutputCallbackRecord callback = { vt_output, d };
+    VTDecompressionSessionRef session = NULL;
+    st = VTDecompressionSessionCreate(kCFAllocatorDefault, format, spec, attrs, &callback, &session);
+    CFRelease(spec);
+    CFRelease(attrs);
+    CFRelease(surface);
+    CFRelease(pixel_format_number);
+    if (st != noErr || !session) {
+        fprintf(stderr, "[dec] VideoToolbox: session failed (%d); FFmpeg decodes\n", (int)st);
+        CFRelease(format);
+        return -1;
+    }
+    VTSessionSetProperty(session, kVTDecompressionPropertyKey_RealTime, kCFBooleanTrue);
+    d->vt.session = session;
+    d->vt.format = format;
+    d->vt.errors = 0;
+    fprintf(stderr, "[dec] VideoToolbox direct: %s session open\n", payload[0] == 1 ? "H.264" : "HEVC");
+    return 0;
+}
+
+static int vt_feed(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
+    /* The data has to outlive this call (asynchronous decode): copy it. */
+    CMBlockBufferRef block = NULL;
+    OSStatus st = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, NULL, len, kCFAllocatorDefault,
+                                                     NULL, 0, len, kCMBlockBufferAssureMemoryNowFlag, &block);
+    if (st != noErr || !block) return -1;
+    st = CMBlockBufferReplaceDataBytes(avcc, block, 0, len);
+    CMSampleBufferRef sample = NULL;
+    const size_t sample_size = len;
+    if (st == noErr) {
+        st = CMSampleBufferCreateReady(kCFAllocatorDefault, block, d->vt.format, 1, 0, NULL,
+                                       1, &sample_size, &sample);
+    }
+    CFRelease(block);
+    if (st != noErr || !sample) return -1;
+    VTDecodeInfoFlags info = 0;
+    st = VTDecompressionSessionDecodeFrame(d->vt.session, sample,
+                                           kVTDecodeFrame_EnableAsynchronousDecompression |
+                                           kVTDecodeFrame_1xRealTimePlayback,
+                                           NULL, &info);
+    CFRelease(sample);
+    if (st != noErr) {
+        __atomic_add_fetch(&d->vt.errors, 1, __ATOMIC_RELAXED);
+        return -1;
+    }
+    return 0;
+}
+#endif
+
+void tb_dec_set_direct_videotoolbox(struct tb_decoder *d, int on) {
+    if (!d) return;
+    d->want_direct_vt = on ? 1 : 0;
+    d->direct_vt_failed = 0;
+#if defined(__APPLE__)
+    /* Off: FFmpeg takes over from the next keyframe. On: VideoToolbox
+     * starts with the next parameter sets, which come with every keyframe. */
+    if (!on) vt_close(d);
+#endif
+}
+
+int tb_dec_direct_videotoolbox_active(const struct tb_decoder *d) {
+#if defined(__APPLE__)
+    return d && d->vt.session != NULL;
+#else
+    (void)d;
+    return 0;
+#endif
+}
+
+int tb_dec_wake_fd(const struct tb_decoder *d) {
+#if defined(__APPLE__)
+    return d ? d->vt.wake[0] : -1;
+#else
+    (void)d;
+    return -1;
+#endif
+}
+
+void tb_dec_poll(struct tb_decoder *d) {
+#if defined(__APPLE__)
+    if (!d) return;
+    if (d->vt.wake[0] >= 0) {
+        char drain[64];
+        while (read(d->vt.wake[0], drain, sizeof(drain)) > 0) { }
+    }
+    CVPixelBufferRef pb;
+    while ((pb = vt_pop(d)) != NULL) {
+        deliver_pixbuf(d, pb);
+        CVPixelBufferRelease(pb);
+    }
+    if (d->vt.session && d->vt.errors > TB_VT_MAX_ERRORS) {
+        fprintf(stderr, "[dec] VideoToolbox direct: %d errors in a row; FFmpeg decodes from the next keyframe\n",
+                d->vt.errors);
+        vt_close(d);
+        d->direct_vt_failed = 1;
+    }
+#else
+    (void)d;
+#endif
 }
 
 void tb_dec_set_pixbuf_cb(struct tb_decoder *d, tb_pixbuf_cb cb) {
@@ -152,6 +427,10 @@ int tb_dec_supports_hevc_hwdecode(void) {
 
 void tb_dec_reset(struct tb_decoder *d) {
     if (!d) return;
+#if defined(__APPLE__)
+    vt_close(d);
+#endif
+    d->direct_vt_failed = 0;
     if (d->ctx) avcodec_free_context(&d->ctx);
     av_free(d->extradata);
     d->extradata      = NULL;
@@ -162,6 +441,12 @@ void tb_dec_reset(struct tb_decoder *d) {
 
 void tb_dec_destroy(struct tb_decoder *d) {
     if (!d) return;
+#if defined(__APPLE__)
+    vt_close(d);
+    if (d->vt.wake[0] >= 0) close(d->vt.wake[0]);
+    if (d->vt.wake[1] >= 0) close(d->vt.wake[1]);
+    pthread_mutex_destroy(&d->vt.lock);
+#endif
     if (d->ctx)      avcodec_free_context(&d->ctx);
     if (d->hw_dev)   av_buffer_unref(&d->hw_dev);
     if (d->hw_frame) av_frame_free(&d->hw_frame);
@@ -299,7 +584,21 @@ static int open_decoder(struct tb_decoder *d) {
     return 0;
 }
 
+static int set_param_sets_ffmpeg(struct tb_decoder *d, const uint8_t *payload, size_t len, int *changed);
+
 int tb_dec_set_param_sets(struct tb_decoder *d, const uint8_t *payload, size_t len) {
+    int changed = 0;
+    const int r = set_param_sets_ffmpeg(d, payload, len, &changed);
+#if defined(__APPLE__)
+    /* FFmpeg stays open either way, so it can take over at a keyframe. */
+    if (d->want_direct_vt && !d->direct_vt_failed && (changed || !d->vt.session)) {
+        if (vt_open(d, payload, len) != 0) d->direct_vt_failed = 1;
+    }
+#endif
+    return r;
+}
+
+static int set_param_sets_ffmpeg(struct tb_decoder *d, const uint8_t *payload, size_t len, int *changed) {
     /* Sender re-emits VPS/SPS/PPS with every keyframe (every ~2 seconds).
      * Re-creating the decoder each time stalls decode for ~200ms causing
      * the fps drops to 4 seen in the logs. Only rebuild if param sets
@@ -326,6 +625,7 @@ int tb_dec_set_param_sets(struct tb_decoder *d, const uint8_t *payload, size_t l
     }
 
     av_free(prev_ed);
+    *changed = 1;
     fprintf(stderr, "[dec] param sets changed, opening decoder\n");
     return open_decoder(d);
 }
@@ -364,6 +664,9 @@ static int avcc_to_annexb(struct tb_decoder *d,
 }
 
 int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
+#if defined(__APPLE__)
+    if (d->vt.session) return vt_feed(d, avcc, len);
+#endif
     if (!d->opened) return -1;
 
     uint8_t *anb = NULL;
@@ -391,24 +694,9 @@ int tb_dec_feed_frame(struct tb_decoder *d, const uint8_t *avcc, size_t len) {
          * GPU→staging→CPU copy that av_hwframe_transfer_data performs.
          * Major win on Intel iMac + Radeon (~6× faster in practice). */
         if (d->hw_frame->format == d->hw_pix_fmt && d->hw_frame->data[3]) {
-            CVPixelBufferRef pb = (CVPixelBufferRef)d->hw_frame->data[3];
-            if (d->pixbuf_cb) {
-                /* Hand the decoded surface to the caller, which decides when
-                 * (and whether) to upload it. */
-                d->pixbuf_cb((void *)pb, d->ud);
-                av_frame_unref(d->hw_frame);
-                continue;
-            }
-            if (CVPixelBufferLockBaseAddress(pb, kCVPixelBufferLock_ReadOnly) == 0) {
-                uint8_t *y   = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 0);
-                size_t   ys  =            CVPixelBufferGetBytesPerRowOfPlane(pb, 0);
-                uint8_t *uv  = (uint8_t *)CVPixelBufferGetBaseAddressOfPlane(pb, 1);
-                size_t   uvs =            CVPixelBufferGetBytesPerRowOfPlane(pb, 1);
-                int      w   = (int)CVPixelBufferGetWidth(pb);
-                int      h   = (int)CVPixelBufferGetHeight(pb);
-                d->cb(y, (int)ys, uv, (int)uvs, w, h, d->ud);
-                CVPixelBufferUnlockBaseAddress(pb, kCVPixelBufferLock_ReadOnly);
-            }
+            /* Hand the decoded surface to the caller, which decides when
+             * (and whether) to upload it. */
+            deliver_pixbuf(d, (CVPixelBufferRef)d->hw_frame->data[3]);
             av_frame_unref(d->hw_frame);
             continue;
         }

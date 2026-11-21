@@ -292,6 +292,7 @@
   "receiver.expert.display_sync": "In unkomprimierten Modi auf die Bildwiederholung warten (TargetBridge Metal)",
   "receiver.expert.low_latency": "Ein Bild weniger puffern (mit „Auf die Bildwiederholung warten“, experimentell)",
   "receiver.expert.zero_copy": "H.264/HEVC-Bilder ohne Kopie anzeigen (experimentell, TargetBridge Metal)",
+  "receiver.expert.direct_vt": "Direkt mit VideoToolbox dekodieren (H.264/HEVC, experimentell)",
   "receiver.signin.menu": "Anmeldebildschirm-Modus (experimentell)",
   "receiver.signin.installed": "Installiert: aktiv, solange der iMac das Anmeldefenster zeigt",
   "receiver.signin.not_installed": "Nicht installiert",
